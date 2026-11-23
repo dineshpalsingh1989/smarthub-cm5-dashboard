@@ -145,6 +145,17 @@ Open any browser and type the address the installer printed:
 
 ## Step 5 · Set up your network
 
+<p align="center"><img src="docs/step5-network.svg" alt="See eth0 IP, set Ethernet DHCP or static, connect the SmartHub to your WiFi" width="760"></p>
+
+The dashboard is mainly for **seeing and setting up the SmartHub's network** without a keyboard or screen:
+
+1. **See the IP address.** **Status** shows the IP of **eth0** (Ethernet) and **wlan0** (WiFi), so you know where to find the SmartHub on your network.
+2. **Set up Ethernet.** Choose **Dynamic (DHCP)**, or **Static** and enter the IP / prefix, gateway and DNS. Then press **Apply**.
+3. **Connect the SmartHub to your WiFi.** Press **Search WiFi**, pick your network, enter its password, choose DHCP or Static, then press **Connect**. The SmartHub leaves the hotspot and joins your WiFi. Your phone disconnects because the board has one WiFi radio. Check the new IP in your router, or turn the hotspot on again and look at Status.
+
+<details>
+<summary><b>See a real screenshot and every section</b></summary>
+
 <table>
 <tr>
 <td width="330"><img src="docs/dashboard.png" alt="Dashboard screenshot" width="320"></td>
@@ -167,12 +178,15 @@ Open any browser and type the address the installer printed:
 </td>
 </tr>
 </table>
+</details>
 
 ---
 
 ## Step 6 · Turn the hotspot off
 
-Hold **USER** for 5 seconds again: you hear **two short beeps** and **LED0 turns off**. You can also press **Turn off AP** on the dashboard.
+<p align="center"><img src="docs/step6-off.svg" alt="Hold USER 5 seconds again or press Turn off AP: two beeps, LED0 off" width="760"></p>
+
+When you're done, hold **USER** for 5 seconds again: you hear **two short beeps** and **LED0 turns off**. You can also press **Turn off AP** on the dashboard. The SmartHub stays on your network with the settings you made. The dashboard closes until you turn the hotspot on again.
 
 | Sound | Meaning |
 |---|---|

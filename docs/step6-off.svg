@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 260" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <rect x="2" y="2" width="796" height="256" rx="24" fill="#EAF5FC" stroke="#cfe6f5" stroke-width="3"/>
+  <circle cx="46" cy="46" r="24" fill="#1E9AD6"/>
+  <text x="46" y="55" font-size="26" font-weight="800" fill="#fff" text-anchor="middle">6</text>
+
+  <g transform="translate(40 0)">
+  <!-- side panel -->
+  <rect x="40" y="122" width="290" height="116" rx="14" fill="#2b2f36" stroke="#1d2330" stroke-width="4"/>
+  <circle cx="100" cy="180" r="10" fill="#c0392b" stroke="#fff" stroke-width="2.5"/>
+  <rect x="140" y="156" width="20" height="48" rx="10" fill="none" stroke="#fff" stroke-width="3"/>
+  <circle cx="150" cy="180" r="5" fill="#c0392b"/>
+  <g fill="#9fd3f0" font-size="10" font-weight="700" text-anchor="middle">
+    <text x="100" y="226">USER</text><text x="150" y="226">PWR</text>
+  </g>
+  <g fill="#fff" font-size="10" font-weight="700" text-anchor="middle">
+    <text x="210" y="160">LED0</text><text x="252" y="160">LED1</text><text x="294" y="160">PWR</text>
+  </g>
+  <rect x="200" y="168" width="20" height="9" rx="2" fill="#24405a"/>
+  <rect x="242" y="168" width="20" height="9" rx="2" fill="#3a4150"/>
+  <rect x="284" y="168" width="20" height="9" rx="2" fill="#ff4d4d"/>
+  <text x="210" y="200" font-size="11" font-weight="700" fill="#8a919c" text-anchor="middle">off</text>
+
+  <!-- press sparks -->
+  <g stroke="#ffd23f" stroke-width="4" stroke-linecap="round">
+    <path d="M76 172l-11 -5M74 187l-12 2M124 172l11 -5M126 187l12 2"/>
+  </g>
+  <!-- hand -->
+  <g transform="translate(-75 -28)">
+    <rect x="163" y="80" width="24" height="120" rx="12" fill="#ffd3a8" stroke="#1d2330" stroke-width="3"/>
+    <rect x="146" y="34" width="84" height="72" rx="26" fill="#ffd3a8" stroke="#1d2330" stroke-width="3"/>
+    <path d="M196 52q14 0 14 12M200 74q12 0 12 12" fill="none" stroke="#1d2330" stroke-width="2.5" stroke-linecap="round"/>
+    <ellipse cx="150" cy="80" rx="11" ry="17" fill="#ffd3a8" stroke="#1d2330" stroke-width="3"/>
+    <rect x="152" y="-6" width="72" height="44" rx="8" fill="#1E9AD6" stroke="#1d2330" stroke-width="3"/>
+    <rect x="152" y="26" width="72" height="12" fill="#0B5E92" stroke="#1d2330" stroke-width="3"/>
+  </g>
+
+  <!-- 5 s timer -->
+  <circle cx="226" cy="64" r="30" fill="#fff" stroke="#cfe6f5" stroke-width="7"/>
+  <circle cx="226" cy="64" r="30" fill="none" stroke="#c0392b" stroke-width="7" stroke-linecap="round"
+          stroke-dasharray="189" stroke-dashoffset="189" transform="rotate(-90 226 64)">
+    <animate attributeName="stroke-dashoffset" values="189;0;0" keyTimes="0;.85;1" dur="5s" repeatCount="indefinite"/>
+  </circle>
+  <text x="226" y="70" font-size="18" font-weight="800" fill="#1d2330" text-anchor="middle">5 s</text>
+
+  </g>
+
+  <!-- two beeps -->
+  <g font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">
+    <circle cx="400" cy="74" r="28" fill="#ffd23f" stroke="#1d2330" stroke-width="3"/><text x="400" y="79">beep</text>
+    <circle cx="446" cy="130" r="28" fill="#ffd23f" stroke="#1d2330" stroke-width="3"/><text x="446" y="135">beep</text>
+  </g>
+
+  <!-- or -->
+  <circle cx="500" cy="190" r="18" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
+  <text x="500" y="195" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">or</text>
+
+  <!-- phone: Turn off AP -->
+  <rect x="524" y="26" width="110" height="214" rx="18" fill="#1d2330"/>
+  <rect x="532" y="44" width="94" height="186" rx="8" fill="#f2f4f7"/>
+  <rect x="566" y="33" width="26" height="5" rx="2.5" fill="#3d434d"/>
+  <rect x="538" y="52" width="40" height="7" rx="3.5" fill="#1E9AD6"/>
+  <rect x="538" y="68" width="82" height="152" rx="6" fill="#fff"/>
+  <text x="544" y="84" font-size="9" font-weight="800" fill="#1d2330">Access Point</text>
+  <rect x="544" y="92" width="70" height="14" rx="3" fill="#fff" stroke="#c5cad3"/>
+  <text x="548" y="102" font-size="8" fill="#1d2330">smarthub</text>
+  <rect x="544" y="112" width="70" height="14" rx="3" fill="#fff" stroke="#c5cad3"/>
+  <rect x="544" y="134" width="70" height="16" rx="4" fill="#1E9AD6"/>
+  <text x="579" y="145" font-size="8" fill="#fff" text-anchor="middle">Save</text>
+  <rect x="544" y="158" width="70" height="20" rx="4" fill="#c0392b"/>
+  <text x="579" y="171" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">Turn off AP</text>
+  <circle cx="612" cy="176" r="6" fill="none" stroke="#ffd23f" stroke-width="3">
+    <animate attributeName="r" values="4;11;4" dur="1.2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- result card -->
+  <rect x="654" y="40" width="128" height="180" rx="14" fill="#fff" stroke="#cfe6f5" stroke-width="3"/>
+  <text x="668" y="70" font-size="16" font-weight="800" fill="#c0392b">Hotspot OFF</text>
+  <text x="668" y="100" font-size="12" fill="#444">• 2 short beeps</text>
+  <text x="668" y="124" font-size="12" fill="#444">• LED0 off</text>
+  <text x="668" y="148" font-size="12" fill="#444">• SmartHub stays</text>
+  <text x="678" y="166" font-size="12" fill="#444">on your network</text>
+  <text x="668" y="198" font-size="11" fill="#777">Dashboard closes</text>
+  <text x="668" y="212" font-size="11" fill="#777">until next time</text>
+</svg>
