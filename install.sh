@@ -1,6 +1,7 @@
 #!/bin/bash
 # IRIV SmartHub CM5 - AP dashboard installer / updater. Same command installs or updates:
 #   curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main/install.sh | sudo bash
+# A failed board check asks "Skip this check?". Non-interactive: ... | sudo bash -s -- --force
 set -euo pipefail
 REPO=https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main
 DIR=/opt/smarthub
@@ -8,28 +9,46 @@ DIR=/opt/smarthub
 ok()   { echo "  [OK]   $*"; }
 info() { echo "  [INFO] $*"; }
 fail() { echo "  [FAIL] $*"; echo "Aborted - nothing was changed."; exit 1; }  # only used before step 3
+FORCE=0; SKIPPED=0
+
+ask_skip() {  # hardware/board check failed: let the user decide (or --force) instead of hard abort
+  echo "  [FAIL] $*"
+  local a=""
+  if [ "$FORCE" = 1 ]; then
+    a=y; echo "  [SKIP] --force given"
+  elif (exec </dev/tty) 2>/dev/null; then  # works even when the script itself is piped from curl
+    read -r -p "         Skip this check and install anyway? [y/N] " a </dev/tty || a=""
+  fi
+  [[ $a == [yY]* ]] || { echo "Aborted - nothing was changed. (To skip failed checks: add --force)"; exit 1; }
+  SKIPPED=1
+}
 
 main() {  # wrapped so a half-downloaded script never runs
+  [ "${1:-}" = "--force" ] && FORCE=1
   [ "$(id -u)" = 0 ] || { echo "Run with sudo:  curl -fsSL $REPO/install.sh | sudo bash"; exit 1; }
 
   echo "== 1/3 Checking device (nothing is changed yet) =="
   local model
   model=$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)
-  [[ $model == *"Compute Module 5"* ]] && ok "$model" || fail "Not a Compute Module 5 ($model)"
+  [[ $model == *"Compute Module 5"* ]] && ok "$model" || ask_skip "Not a Compute Module 5 ($model)"
   # SmartHub has no ID EEPROM; its onboard USB 2.0 hub (QinHeng 1a86:8091) is the best board fingerprint
   lsusb -d 1a86:8091 >/dev/null 2>&1 && ok "SmartHub onboard USB hub (1a86:8091)" \
-    || fail "SmartHub USB hub not found - not an IRIV SmartHub CM5? (if it is: add 'dtoverlay=dwc2,dr_mode=host' under [cm5] in /boot/firmware/config.txt and reboot)"
+    || ask_skip "SmartHub USB hub not found - not an IRIV SmartHub CM5? (if it is: add 'dtoverlay=dwc2,dr_mode=host' under [cm5] in /boot/firmware/config.txt and reboot)"
+  # software the dashboard cannot run without: never skippable
   command -v nmcli >/dev/null && systemctl is-active -q NetworkManager \
     && ok "NetworkManager running" || fail "NetworkManager not running (needs Raspberry Pi OS Bookworm or newer)"
   python3 -c 'import gpiozero' 2>/dev/null && ok "python3-gpiozero" || fail "python3-gpiozero missing (sudo apt install python3-gpiozero)"
   python3 -c 'import gpiod' 2>/dev/null && ok "python3-libgpiod" || fail "python3-libgpiod missing (sudo apt install python3-libgpiod)"
-  command -v pinctrl >/dev/null || fail "pinctrl missing (update Raspberry Pi OS)"
-  [[ $(pinctrl get 4) == *"| hi"* ]] && ok "USER button GPIO4 reads high (not pressed)" \
-    || fail "GPIO4 is low - not a SmartHub, or USER button is held down"
+  command -v pinctrl >/dev/null && [[ $(pinctrl get 4) == *"| hi"* ]] && ok "USER button GPIO4 reads high (not pressed)" \
+    || ask_skip "GPIO4 is not high - not a SmartHub, or USER button is held down"
   [ "$(nmcli -g WIFI-PROPERTIES.AP dev show wlan0 2>/dev/null)" = yes ] \
-    && ok "wlan0 present and supports AP mode" || fail "wlan0 missing or has no AP support"
-  pinctrl set 19 op dh; pinctrl set 20 op dh; sleep 0.3; pinctrl set 19 dl; pinctrl set 20 dl
-  ok "Buzzer GPIO19 + LED0 GPIO20 pulsed (you should hear a beep and see LED0 blink)"
+    && ok "wlan0 present and supports AP mode" || ask_skip "wlan0 missing or has no AP support (hotspot will not work)"
+  if [ "$SKIPPED" = 0 ]; then
+    pinctrl set 19 op dh; pinctrl set 20 op dh; sleep 0.3; pinctrl set 19 dl; pinctrl set 20 dl
+    ok "Buzzer GPIO19 + LED0 GPIO20 pulsed (you should hear a beep and see LED0 blink)"
+  else  # unknown board: don't drive its pins
+    info "Buzzer/LED test skipped because a board check was skipped"
+  fi
   command -v docker >/dev/null && ok "Docker found" || info "Docker not installed (optional) - dashboard will say so"
 
   local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT  # expand now: $tmp is local, gone when trap fires
@@ -73,6 +92,7 @@ EOF
   systemctl is-active -q smarthub-ap || { journalctl -u smarthub-ap -n 20 --no-pager; echo "Service failed to start (log above)"; exit 1; }
   local url="http://192.168.4.1"; [ "$port" = 80 ] || url="$url:$port"
   ok "Service running"
+  [ "$SKIPPED" = 0 ] || echo "  [WARN] Installed with skipped checks - button, LED, buzzer or hotspot may not work on this board"
   echo
   echo "Done. Hold USER button 5 s -> join WiFi 'smarthub' (password smarthub1) -> open $url"
 }

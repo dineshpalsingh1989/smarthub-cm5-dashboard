@@ -293,7 +293,7 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
 <button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.3</footer>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.4</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>

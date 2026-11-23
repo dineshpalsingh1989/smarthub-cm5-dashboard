@@ -58,7 +58,20 @@ The installer **checks your SmartHub before changing anything**. Each check prin
 | WiFi supports AP mode | The hotspot can start |
 | Docker *(optional)* | If Docker is missing, it still installs. The dashboard's Docker section says *"Docker is not installed"* |
 
-If any required check fails, it stops and nothing is changed. At the end it prints the address to open, for example `http://192.168.4.1:8080`. **Write it down.**
+**If a check fails**, the installer asks before going further:
+
+```
+  [FAIL] SmartHub USB hub not found - not an IRIV SmartHub CM5? ...
+         Skip this check and install anyway? [y/N]
+```
+
+- Press **Enter** (or `n`) to stop. Nothing is changed.
+- Press **`y`** to skip it and install anyway. The buzzer/LED test is then skipped too, and at the end it warns that some features may not work.
+- To skip failed checks without being asked, for example in a script:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main/install.sh | sudo bash -s -- --force
+  ```
+- Missing **software** (NetworkManager, gpiozero, libgpiod) can't be skipped, because the dashboard can't run without it. The installer tells you the `apt install` command to fix it. At the end it prints the address to open, for example `http://192.168.4.1:8080`. **Write it down.**
 
 <details>
 <summary><b>No internet on the SmartHub? Install from the download package</b></summary>
