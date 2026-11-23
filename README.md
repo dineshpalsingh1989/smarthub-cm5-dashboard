@@ -30,7 +30,7 @@ It runs in the background all the time, so it is built to use almost nothing. Me
 Check it yourself:
 
 ```bash
-systemctl status smarthub-ap    # shows "Memory:" and "CPU:" used so far
+ps -o %cpu,rss,etime -p $(systemctl show smarthub-ap -p MainPID --value)   # CPU %, RAM in KB, uptime
 ```
 
 ---
