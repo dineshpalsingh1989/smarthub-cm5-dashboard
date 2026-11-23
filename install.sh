@@ -39,8 +39,11 @@ main() {  # wrapped so a half-downloaded script never runs
     && ok "NetworkManager running" || fail "NetworkManager not running (needs Raspberry Pi OS Bookworm or newer)"
   python3 -c 'import gpiozero' 2>/dev/null && ok "python3-gpiozero" || fail "python3-gpiozero missing (sudo apt install python3-gpiozero)"
   python3 -c 'import gpiod' 2>/dev/null && ok "python3-libgpiod" || fail "python3-libgpiod missing (sudo apt install python3-libgpiod)"
-  command -v pinctrl >/dev/null && [[ $(pinctrl get 4) == *"| hi"* ]] && ok "USER button GPIO4 reads high (not pressed)" \
-    || ask_skip "GPIO4 is not high - not a SmartHub, or USER button is held down"
+  # set the internal pull-up first (runtime only, gone after reboot): a fresh boot may leave GPIO4 without it
+  local g4=""
+  command -v pinctrl >/dev/null && { pinctrl set 4 ip pu; sleep 0.1; g4=$(pinctrl get 4); }
+  [[ $g4 == *"| hi"* ]] && ok "USER button GPIO4 reads high (not pressed)" \
+    || ask_skip "GPIO4 is not high - USER button held down, GPIO4 used by something else (e.g. 1-wire), or not a SmartHub. pinctrl: ${g4:-not available}"
   [ "$(nmcli -g WIFI-PROPERTIES.AP dev show wlan0 2>/dev/null)" = yes ] \
     && ok "wlan0 present and supports AP mode" || ask_skip "wlan0 missing or has no AP support (hotspot will not work)"
   if [ "$SKIPPED" = 0 ]; then
