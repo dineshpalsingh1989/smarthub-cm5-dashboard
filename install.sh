@@ -29,7 +29,7 @@ main() {  # wrapped so a half-downloaded script never runs
   command -v docker >/dev/null && ok "Docker found" || info "Docker not installed - Docker panel will show that"
 
   echo "== 2/3 Downloading =="
-  local tmp; tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT  # expand now: $tmp is local, gone when trap fires
   for f in smarthub_ap.py logo.webp; do
     curl -fsSL "$REPO/$f" -o "$tmp/$f" || fail "Download of $f failed - check internet"
   done
