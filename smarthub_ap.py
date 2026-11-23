@@ -73,10 +73,44 @@ def toggle():  # called by the 5 s button hold
         buzzer.beep(0.05, 0.05, 5)
 
 
+def wlan0_is_ap():  # no subprocess, so it is cheap to poll: AP mode <=> wlan0 holds 192.168.4.1
+    import fcntl, socket, struct
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:  # 0x8915 = SIOCGIFADDR
+            return fcntl.ioctl(s.fileno(), 0x8915, struct.pack("256s", b"wlan0"))[20:24] == socket.inet_aton("192.168.4.1")
+        except OSError:  # wlan0 has no IPv4 address
+            return False
+
+
+def button_loop(on_hold, hold=5, line=None):
+    # Kernel GPIO edge events: the thread sleeps with zero CPU until the button moves.
+    # (gpiozero's Button costs ~1% CPU forever because lgpio polls for edges.)
+    if line is None:
+        import gpiod
+        line = gpiod.Chip("gpiochip0").get_line(4)
+        line.request(consumer="smarthub", type=gpiod.LINE_REQ_EV_BOTH_EDGES, flags=gpiod.LINE_REQ_FLAG_BIAS_PULL_UP)
+
+    def wait(t):  # block until an edge or timeout; drop queued edges, we only read the level
+        if line.event_wait(sec=int(t), nsec=int(t % 1 * 1e9)):
+            line.event_read_multiple()
+
+    while True:
+        wait(3600)
+        if line.get_value():  # high = not pressed
+            continue
+        end = time.monotonic() + hold
+        while line.get_value() == 0 and end - time.monotonic() > 0:
+            wait(end - time.monotonic())
+        if line.get_value() == 0:  # still held after 5 s
+            on_hold()
+            while line.get_value() == 0:  # wait for release before re-arming
+                wait(3600)
+
+
 def led_loop(led):  # LED0 mirrors real AP state, whatever changed it (button, dashboard, WiFi connect)
     blinking = False
     while True:
-        on = ap_active()
+        on = wlan0_is_ap()
         if on != blinking:
             led.blink(0.5, 0.5) if on else led.off()
             blinking = on
@@ -257,7 +291,7 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
 <button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.1</footer>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.2</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
@@ -310,6 +344,36 @@ def selftest():
         except ValueError:
             pass
     assert fields(r"my\:net:80:WPA2") == ["my:net", "80", "WPA2"]
+    class FakeLine:  # scripted button: [(seconds until edge, new level)], 0 = pressed
+        def __init__(self, script):
+            self.v, self.script = 1, list(script)
+        def get_value(self):
+            return self.v
+        def event_read_multiple(self):
+            pass
+        def event_wait(self, sec, nsec):
+            if not self.script:
+                raise EOFError  # script finished: stop the loop
+            delay, v = self.script[0]
+            if delay > sec + nsec / 1e9:
+                self.script[0] = (delay - sec - nsec / 1e9, v)
+                time.sleep(sec + nsec / 1e9)
+                return False
+            time.sleep(delay)
+            self.v = v
+            self.script.pop(0)
+            return True
+
+    for script, want in (([(0, 0), (.05, 1)], 0),                          # short press: ignored
+                         ([(0, 0), (.3, 1)], 1),                           # held past 0.2 s: toggles once
+                         ([(0, 0), (.01, 1), (.01, 0), (.3, 1)], 1),       # bounce, then hold
+                         ([(0, 0), (.3, 1), (.05, 0), (.3, 1)], 2)):       # two holds: toggles twice
+        calls = []
+        try:
+            button_loop(lambda: calls.append(1), hold=.2, line=FakeLine(script))
+        except EOFError:
+            pass
+        assert len(calls) == want, (script, calls)
     for bad in ({"action": "rm", "name": "x"}, {"action": "exec"}):  # only start/stop/restart reach docker
         try:
             set_docker(bad)
@@ -321,11 +385,10 @@ def selftest():
 
 def main():
     global buzzer
-    from gpiozero import LED, Button, Buzzer
+    from gpiozero import LED, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
     threading.Thread(target=led_loop, args=(LED(20),), daemon=True).start()  # LED0 flashes while AP on
-    button = Button(4, hold_time=5)        # USER button; assumes it pulls GPIO4 to GND
-    button.when_held = toggle
+    threading.Thread(target=button_loop, args=(toggle,), daemon=True).start()  # USER button pulls GPIO4 to GND
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 

@@ -19,6 +19,7 @@ main() {  # wrapped so a half-downloaded script never runs
   command -v nmcli >/dev/null && systemctl is-active -q NetworkManager \
     && ok "NetworkManager running" || fail "NetworkManager not running (needs Raspberry Pi OS Bookworm or newer)"
   python3 -c 'import gpiozero' 2>/dev/null && ok "python3-gpiozero" || fail "python3-gpiozero missing (sudo apt install python3-gpiozero)"
+  python3 -c 'import gpiod' 2>/dev/null && ok "python3-libgpiod" || fail "python3-libgpiod missing (sudo apt install python3-libgpiod)"
   command -v pinctrl >/dev/null || fail "pinctrl missing (update Raspberry Pi OS)"
   [[ $(pinctrl get 4) == *"| hi"* ]] && ok "USER button GPIO4 reads high (not pressed)" \
     || fail "GPIO4 is low - not a SmartHub, or USER button is held down"
