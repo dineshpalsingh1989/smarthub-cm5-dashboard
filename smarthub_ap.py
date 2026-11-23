@@ -3,6 +3,7 @@
 
 Hold USER button (GPIO4) 5 s -> AP "smarthub" / "smarthub1" on 192.168.4.1 (1 long beep).
 Hold again 5 s            -> AP off (2 short beeps). Error = 5 fast beeps.
+LED0 (GPIO20) flashes while the AP is on.
 Browse http://192.168.4.1:<SMARTHUB_PORT> while connected to the AP (default port 80).
 
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
@@ -70,6 +71,16 @@ def toggle():  # called by the 5 s button hold
     except Exception as e:
         print("AP toggle failed:", e, flush=True)
         buzzer.beep(0.05, 0.05, 5)
+
+
+def led_loop(led):  # LED0 mirrors real AP state, whatever changed it (button, dashboard, WiFi connect)
+    blinking = False
+    while True:
+        on = ap_active()
+        if on != blinking:
+            led.blink(0.5, 0.5) if on else led.off()
+            blinking = on
+        time.sleep(2)
 
 
 def set_ap(d):
@@ -246,7 +257,7 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
 <button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.0</footer>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.1</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
@@ -310,8 +321,9 @@ def selftest():
 
 def main():
     global buzzer
-    from gpiozero import Button, Buzzer
+    from gpiozero import LED, Button, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
+    threading.Thread(target=led_loop, args=(LED(20),), daemon=True).start()  # LED0 flashes while AP on
     button = Button(4, hold_time=5)        # USER button; assumes it pulls GPIO4 to GND
     button.when_held = toggle
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)

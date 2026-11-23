@@ -24,17 +24,23 @@ main() {  # wrapped so a half-downloaded script never runs
     || fail "GPIO4 is low - not a SmartHub, or USER button is held down"
   [ "$(nmcli -g WIFI-PROPERTIES.AP dev show wlan0 2>/dev/null)" = yes ] \
     && ok "wlan0 present and supports AP mode" || fail "wlan0 missing or has no AP support"
-  pinctrl set 19 op dh; sleep 0.2; pinctrl set 19 dl
-  ok "Buzzer GPIO19 pulsed (you should hear a short beep)"
+  pinctrl set 19 op dh; pinctrl set 20 op dh; sleep 0.3; pinctrl set 19 dl; pinctrl set 20 dl
+  ok "Buzzer GPIO19 + LED0 GPIO20 pulsed (you should hear a beep and see LED0 blink)"
   command -v docker >/dev/null && ok "Docker found" || info "Docker not installed - Docker panel will show that"
 
-  echo "== 2/3 Downloading =="
   local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT  # expand now: $tmp is local, gone when trap fires
-  for f in smarthub_ap.py logo.webp; do
-    curl -fsSL "$REPO/$f" -o "$tmp/$f" || fail "Download of $f failed - check internet"
-  done
+  local src; src=$(dirname "${BASH_SOURCE[0]:-}")  # empty when piped from curl
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$src/smarthub_ap.py" ] && [ -f "$src/logo.webp" ]; then
+    echo "== 2/3 Using files from downloaded package ($src) =="
+    cp "$src/smarthub_ap.py" "$src/logo.webp" "$tmp/"
+  else
+    echo "== 2/3 Downloading =="
+    for f in smarthub_ap.py logo.webp; do
+      curl -fsSL "$REPO/$f" -o "$tmp/$f" || fail "Download of $f failed - check internet"
+    done
+  fi
   python3 "$tmp/smarthub_ap.py" test >/dev/null || fail "Downloaded code failed its self-test"
-  ok "$(grep -o 'Dashboard V[0-9.]*' "$tmp/smarthub_ap.py") downloaded and self-tested"
+  ok "$(grep -o 'Dashboard V[0-9.]*' "$tmp/smarthub_ap.py") self-tested"
 
   echo "== 3/3 Installing =="
   systemctl stop smarthub-ap 2>/dev/null || true  # so our own old copy doesn't count as "port 80 busy"
