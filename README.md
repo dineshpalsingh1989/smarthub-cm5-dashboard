@@ -50,12 +50,15 @@ The installer **checks your SmartHub before changing anything**. Each check prin
 
 | Check | What it means |
 |---|---|
-| Compute Module 5 + NetworkManager | Right board and OS |
+| Compute Module 5 | Right compute module |
+| SmartHub onboard USB hub (`1a86:8091`) | It is an IRIV SmartHub CM5 carrier board, not another CM5 board |
+| NetworkManager, gpiozero, libgpiod | Right OS (Raspberry Pi OS Bookworm or newer) |
 | USER button (GPIO4) | Button wired and not pressed |
 | Buzzer (GPIO19) + LED0 (GPIO20) | **You hear a beep and see LED0 blink** |
 | WiFi supports AP mode | The hotspot can start |
+| Docker *(optional)* | If Docker is missing, it still installs. The dashboard's Docker section says *"Docker is not installed"* |
 
-If any check fails, it stops and nothing is changed. At the end it prints the address to open, for example `http://192.168.4.1:8080`. **Write it down.**
+If any required check fails, it stops and nothing is changed. At the end it prints the address to open, for example `http://192.168.4.1:8080`. **Write it down.**
 
 <details>
 <summary><b>No internet on the SmartHub? Install from the download package</b></summary>

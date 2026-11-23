@@ -213,8 +213,10 @@ def status():
     ssid = nm("-g", "802-11-wireless.ssid", "con", "show", AP, check=False).strip() or "smarthub"
     try:
         ctrs, derr = containers(), ""
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # docker missing / daemon down
-        ctrs, derr = [], "Docker: " + str(e)
+    except FileNotFoundError:
+        ctrs, derr = [], "Docker is not installed on this SmartHub."
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # e.g. docker daemon stopped
+        ctrs, derr = [], "Docker error: " + str(e)
     return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr}
 
 
@@ -291,7 +293,7 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
 <button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.2</footer>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.3</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>

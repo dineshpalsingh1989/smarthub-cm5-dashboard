@@ -16,6 +16,9 @@ main() {  # wrapped so a half-downloaded script never runs
   local model
   model=$(tr -d '\0' </proc/device-tree/model 2>/dev/null || true)
   [[ $model == *"Compute Module 5"* ]] && ok "$model" || fail "Not a Compute Module 5 ($model)"
+  # SmartHub has no ID EEPROM; its onboard USB 2.0 hub (QinHeng 1a86:8091) is the best board fingerprint
+  lsusb -d 1a86:8091 >/dev/null 2>&1 && ok "SmartHub onboard USB hub (1a86:8091)" \
+    || fail "SmartHub USB hub not found - not an IRIV SmartHub CM5? (if it is: add 'dtoverlay=dwc2,dr_mode=host' under [cm5] in /boot/firmware/config.txt and reboot)"
   command -v nmcli >/dev/null && systemctl is-active -q NetworkManager \
     && ok "NetworkManager running" || fail "NetworkManager not running (needs Raspberry Pi OS Bookworm or newer)"
   python3 -c 'import gpiozero' 2>/dev/null && ok "python3-gpiozero" || fail "python3-gpiozero missing (sudo apt install python3-gpiozero)"
@@ -27,7 +30,7 @@ main() {  # wrapped so a half-downloaded script never runs
     && ok "wlan0 present and supports AP mode" || fail "wlan0 missing or has no AP support"
   pinctrl set 19 op dh; pinctrl set 20 op dh; sleep 0.3; pinctrl set 19 dl; pinctrl set 20 dl
   ok "Buzzer GPIO19 + LED0 GPIO20 pulsed (you should hear a beep and see LED0 blink)"
-  command -v docker >/dev/null && ok "Docker found" || info "Docker not installed - Docker panel will show that"
+  command -v docker >/dev/null && ok "Docker found" || info "Docker not installed (optional) - dashboard will say so"
 
   local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT  # expand now: $tmp is local, gone when trap fires
   local src; src=$(dirname "${BASH_SOURCE[0]:-}")  # empty when piped from curl
