@@ -1,25 +1,45 @@
-# IRIV SmartHub CM5 – AP Network Dashboard
+<p align="center">
+  <img src="docs/banner.svg" alt="SmartHub Network Dashboard" width="800">
+</p>
 
-Hold the **USER** button for 5 seconds to start a WiFi hotspot. Join it from your phone or laptop and set up the SmartHub's network in a browser. No keyboard or screen needed.
+<p align="center">
+  <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/latest"><img src="https://img.shields.io/github/v/release/dineshpalsingh1989/smarthub-cm5-dashboard?label=download&color=1E9AD6" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/device-IRIV%20SmartHub%20CM5-2b2f36" alt="IRIV SmartHub CM5">
+  <img src="https://img.shields.io/badge/OS-Raspberry%20Pi%20OS%20Bookworm-c51a4a" alt="Raspberry Pi OS Bookworm">
+</p>
 
-**Requirements:** IRIV SmartHub CM5 running Raspberry Pi OS Bookworm or newer.
+Set up your **IRIV SmartHub CM5** network with just a phone. Hold one button and the SmartHub makes its own WiFi hotspot. Open a web page and choose Ethernet or WiFi settings. No keyboard, screen or app needed.
+
+**You need:** an IRIV SmartHub CM5 running Raspberry Pi OS Bookworm or newer, and a phone or laptop with WiFi.
 
 ---
 
-## Install
+## Step 1 · Install
 
-Open a terminal on the SmartHub (keyboard + screen, or SSH), then choose **one** option.
+<p align="center"><img src="docs/step1-install.svg" alt="Run the install command; every check shows OK" width="760"></p>
 
-### Option 1 – One line (SmartHub has internet)
+Open a terminal on the SmartHub (keyboard + screen, or SSH) and paste **one** line:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main/install.sh | sudo bash
 ```
 
-### Option 2 – Download the package (no internet on the SmartHub)
+The installer **checks your SmartHub before changing anything**. Each check prints `[OK]`:
 
-1. On your PC, open **[Releases](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/latest)** and download `smarthub-cm5-dashboard.zip`.
-2. Copy the zip to the SmartHub with a USB stick, or over the network:
+| Check | What it means |
+|---|---|
+| Compute Module 5 + NetworkManager | Right board and OS |
+| USER button (GPIO4) | Button wired and not pressed |
+| Buzzer (GPIO19) + LED0 (GPIO20) | **You hear a beep and see LED0 blink** |
+| WiFi supports AP mode | The hotspot can start |
+
+If any check fails, it stops and nothing is changed. At the end it prints the address to open, for example `http://192.168.4.1:8080`. **Write it down.**
+
+<details>
+<summary><b>No internet on the SmartHub? Install from the download package</b></summary>
+
+1. On your PC, download **`smarthub-cm5-dashboard.zip`** from [Releases](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/latest).
+2. Copy it to the SmartHub with a USB stick, or with:
    ```bash
    scp smarthub-cm5-dashboard.zip pi@<smarthub-ip>:~
    ```
@@ -28,56 +48,107 @@ curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-das
    unzip smarthub-cm5-dashboard.zip
    sudo bash smarthub-cm5-dashboard/install.sh
    ```
-
-### What the installer does
-
-1. **Checks the device first and changes nothing** if a check fails:
-   - Compute Module 5 with NetworkManager and gpiozero
-   - USER button (GPIO4) reads high, meaning it is not pressed
-   - Buzzer (GPIO19) and LED0 (GPIO20) are pulsed: **you should hear a beep and see LED0 blink**
-   - wlan0 exists and supports AP mode
-2. Runs the dashboard's self-test.
-3. Installs to `/opt/smarthub`, starts the service and enables it on boot. If port 80 is already in use (for example by Beaver-IoT), it uses **8080**.
-
-### Update
-
-Run the same command again, or download the newest package from Releases. Your AP name, password and network settings are kept.
+</details>
 
 ---
 
-## Use
+## Step 2 · Hold the USER button for 5 seconds
 
-| Action | Result |
+<p align="center"><img src="docs/step2-button.svg" alt="Hold USER 5 seconds: beep, LED0 flashes" width="760"></p>
+
+The **USER** button is on the right side, next to the USB 3.0 ports. Keep holding until you hear **one long beep**. **LED0 starts flashing** while the hotspot is on.
+
+---
+
+## Step 3 · Join the SmartHub WiFi
+
+<p align="center"><img src="docs/step3-wifi.svg" alt="On your phone, join WiFi smarthub with password smarthub1" width="760"></p>
+
+On your phone or laptop, open the WiFi settings and join:
+
+| WiFi name | Password |
 |---|---|
-| Hold USER 5 s | AP on: WiFi `smarthub`, password `smarthub1`. 1 long beep, **LED0 flashes** |
-| Hold USER 5 s again | AP off. 2 short beeps, LED0 off |
-| Something failed | 5 fast beeps |
+| **`smarthub`** | **`smarthub1`** |
 
-1. Join WiFi **smarthub** (password **smarthub1**).
-2. Open **http://192.168.4.1**, or **http://192.168.4.1:8080** if the installer said it is using port 8080.
-
-### Dashboard
-
-- **Status:** eth0 / wlan0 state and IP
-- **Docker:** container state (running / stopped / error) with Start, Stop and Restart
-- **Ethernet:** Dynamic (DHCP) or Static IP
-- **WiFi:** search for networks and connect, with DHCP or Static IP. Connecting turns the AP off, because the board has one WiFi radio. If the connection fails, the AP comes back on.
-- **Access Point:** change the AP name and password, or turn the AP off
-
-> Change the default AP password `smarthub1` on devices in the field. It is published in this README.
+> Your phone may say *"No internet"*. That is normal: tap **Stay connected**.
 
 ---
+
+## Step 4 · Open the dashboard
+
+<p align="center"><img src="docs/step4-browser.svg" alt="Open a browser and type 192.168.4.1:8080" width="760"></p>
+
+Open any browser and type the address the installer printed:
+
+- **`http://192.168.4.1:8080`** if another app (such as Beaver-IoT) already uses port 80
+- **`http://192.168.4.1`** otherwise
+
+---
+
+## Step 5 · Set up your network
+
+<table>
+<tr>
+<td width="330"><img src="docs/dashboard.png" alt="Dashboard screenshot" width="320"></td>
+<td>
+
+| Section | What you can do |
+|---|---|
+| **Status** | See eth0 / wlan0 state and IP address |
+| **Docker** | See containers: 🟢 running, ⚪ stopped, 🔴 error. **Start**, **Stop** or **Restart** them |
+| **Ethernet** | Choose **Dynamic (DHCP)** or **Static** (IP / prefix, gateway, DNS), then **Apply** |
+| **WiFi** | **Search WiFi**, pick a network, enter its password, choose DHCP or Static, then **Connect** |
+| **Access Point** | Change the hotspot name and password, or **Turn off AP** |
+
+**Good to know**
+
+- Connecting to WiFi **turns the hotspot off**, because the board has one WiFi radio, so your phone disconnects. If the connection fails, the hotspot comes back on.
+- Changing Ethernet can change the SmartHub's IP address on your wired network.
+- The page refreshes itself every 10 seconds.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Step 6 · Turn the hotspot off
+
+Hold **USER** for 5 seconds again: you hear **two short beeps** and **LED0 turns off**. You can also press **Turn off AP** on the dashboard.
+
+| Sound | Meaning |
+|---|---|
+| 1 long beep | Hotspot on |
+| 2 short beeps | Hotspot off, or WiFi connected |
+| 5 fast beeps | Something failed (see Troubleshooting) |
+
+> 🔒 **Security:** change the default password `smarthub1` in **Access Point** for devices in the field. It is published in this README.
+
+---
+
+## Update
+
+Run the same install line again, or download the newest package from [Releases](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/latest). Your settings are kept. The version is shown at the bottom of the dashboard.
 
 ## Troubleshooting
 
-```bash
-sudo systemctl status smarthub-ap      # is it running?
-sudo journalctl -u smarthub-ap -f      # live log
-```
+| Problem | Try |
+|---|---|
+| No beep when holding USER | `sudo systemctl status smarthub-ap`. Is it *active (running)*? |
+| 5 fast beeps | `sudo journalctl -u smarthub-ap -n 30` shows the error |
+| Can't see `smarthub` WiFi | Wait 10 s after the beep. Check LED0 is flashing |
+| Page doesn't open | Use the exact address from the installer, with `:8080` if it printed that |
+| Wrong page opens (e.g. Beaver-IoT) | Add `:8080` to the address |
 
-To uninstall:
+Live log: `sudo journalctl -u smarthub-ap -f`
+
+## Uninstall
 
 ```bash
 sudo systemctl disable --now smarthub-ap
 sudo rm -rf /opt/smarthub /etc/systemd/system/smarthub-ap.service
 ```
+
+---
+
+<p align="center"><sub>Built for the IRIV SmartHub CM5 (Cytron Technologies)</sub></p>
