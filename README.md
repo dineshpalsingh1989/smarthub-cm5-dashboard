@@ -12,6 +12,27 @@ Set up your **IRIV SmartHub CM5** network with just a phone. Hold one button and
 
 **You need:** an IRIV SmartHub CM5 running Raspberry Pi OS Bookworm or newer, and a phone or laptop with WiFi.
 
+### 🪶 Very light: safe to leave running
+
+It runs in the background all the time, so it is built to use almost nothing. Measured on an IRIV SmartHub CM5 (4 cores) over 60 seconds:
+
+| | CPU | RAM |
+|---|---|---|
+| Idle, hotspot **off** | **~0.03 %** of one core (17 ms per minute) | ~27 MB |
+| Idle, hotspot **on** (LED0 flashing) | **~0.04 %** of one core (23 ms per minute) | ~27 MB |
+| Dashboard open in a browser | Small, short bursts every 10 s while the page is open | ~27 MB |
+
+**Why it is so light:**
+- The USER button uses kernel GPIO events, so it sleeps until the button is actually pressed. Nothing keeps checking the pin.
+- The LED0 check reads wlan0's address directly and starts no other program.
+- The web page does no work until someone opens it. It uses only Python's standard library, so there is no extra framework.
+
+Check it yourself:
+
+```bash
+systemctl status smarthub-ap    # shows "Memory:" and "CPU:" used so far
+```
+
 ---
 
 ## Step 1 · Install
