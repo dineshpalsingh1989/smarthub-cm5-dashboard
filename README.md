@@ -121,6 +121,26 @@ Open any browser and type the address the installer printed:
 - **`http://192.168.4.1:8080`** if another app (such as Beaver-IoT) already uses port 80
 - **`http://192.168.4.1`** otherwise
 
+> 🔒 **The dashboard only opens through the SmartHub hotspot.** When the hotspot is off, or you are on your normal office/factory network, the page is blocked: it shows *"Connect to the SmartHub AP"*. This is on purpose. The dashboard has no login and can change network settings and stop Docker containers, so a person must be at the device and hold the USER button to use it.
+>
+> | Opened from | Works? |
+> |---|---|
+> | Phone/laptop joined to the `smarthub` WiFi | ✅ |
+> | The SmartHub itself, or through an SSH tunnel (see below) | ✅ |
+> | Any other device on your normal network | ❌ blocked |
+>
+> <details>
+> <summary>Need it while the hotspot is off? Use an SSH tunnel</summary>
+>
+> From your PC (anyone using this needs the SmartHub's SSH password):
+>
+> ```bash
+> ssh -L 8080:127.0.0.1:8080 pi@<smarthub-ip>
+> ```
+>
+> Keep that window open, then browse to **http://localhost:8080** on your PC. If the installer said port 80, use `-L 8080:127.0.0.1:80` instead.
+> </details>
+
 ---
 
 ## Step 5 · Set up your network
@@ -177,6 +197,7 @@ Run the same install line again, or download the newest package from [Releases](
 | Can't see `smarthub` WiFi | Wait 10 s after the beep. Check LED0 is flashing |
 | Page doesn't open | Use the exact address from the installer, with `:8080` if it printed that |
 | Wrong page opens (e.g. Beaver-IoT) | Add `:8080` to the address |
+| Page says *"Connect to the SmartHub AP"* | You are not on the `smarthub` WiFi. Turn the hotspot on (hold USER 5 s) and join it, or use an SSH tunnel |
 
 Live log: `sudo journalctl -u smarthub-ap -f`
 
