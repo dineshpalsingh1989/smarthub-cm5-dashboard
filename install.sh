@@ -54,7 +54,9 @@ main() {  # wrapped so a half-downloaded script never runs
   fi
   command -v docker >/dev/null && ok "Docker found" || info "Docker not installed (optional) - dashboard will say so"
 
-  local tmp; tmp=$(mktemp -d); trap "rm -rf '$tmp'" EXIT  # expand now: $tmp is local, gone when trap fires
+  local tmp; tmp=$(mktemp -d)
+  # shellcheck disable=SC2064  # expand $tmp now on purpose: it is local, gone when the trap fires
+  trap "rm -rf '$tmp'" EXIT
   local src; src=$(dirname "${BASH_SOURCE[0]:-}")  # empty when piped from curl
   if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$src/smarthub_ap.py" ] && [ -f "$src/logo.webp" ]; then
     echo "== 2/3 Using files from downloaded package ($src) =="

@@ -1,0 +1,17 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}  # same Python as Raspberry Pi OS Bookworm
+      - name: Python self-test (network args, button timing, USB, docker whitelist)
+        run: python3 smarthub_ap.py test
+      - name: Installer syntax + shellcheck
+        run: bash -n install.sh && shellcheck -S warning install.sh
+      - name: Dashboard JavaScript syntax
+        run: |
+          python3 -c "import re,smarthub_ap as s; open('page.js','w').write(re.search(r'<script>(.*)</script>', s.PAGE, re.S).group(1))"
+          node --check page.js

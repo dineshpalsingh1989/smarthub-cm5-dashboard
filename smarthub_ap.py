@@ -9,13 +9,13 @@ Browse http://192.168.4.1:<SMARTHUB_PORT> while connected to the AP (default por
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
 Needs Raspberry Pi OS Bookworm+ (NetworkManager/nmcli, gpiozero preinstalled).
 """
-import ipaddress, json, os, re, subprocess, sys, threading, time
+import ipaddress, json, os, pathlib, re, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
 PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/docker runs on the box
 LOGO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.webp")
-LOGO = open(LOGO_FILE, "rb").read() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
+LOGO = pathlib.Path(LOGO_FILE).read_bytes() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
 scan_cache = []  # wlan0 can't scan while it is the AP, so we scan just before starting it
 
@@ -293,7 +293,7 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
 <button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.4</footer>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.4.1</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
