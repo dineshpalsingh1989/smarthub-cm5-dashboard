@@ -9,6 +9,13 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e9e5b" alt="MIT License"></a>
 </p>
 
+> 🧪 **This is the `beta` branch (V2.0-beta): for testing, not for production.** It adds USB port status, a hardware check, OS and software info, and frees the dashboard port while the hotspot is off. Stable version: [`main`](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/main).
+>
+> Install the beta (same checks as the stable installer; installing `main` again switches back):
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/beta/install.sh | sudo bash
+> ```
+
 Set up your **IRIV SmartHub CM5** network with just a phone. Hold one button and the SmartHub makes its own WiFi hotspot. Open a web page and choose Ethernet or WiFi settings. No keyboard, screen or app needed.
 
 **You need:** an IRIV SmartHub CM5 running Raspberry Pi OS Bookworm or newer, and a phone or laptop with WiFi.
