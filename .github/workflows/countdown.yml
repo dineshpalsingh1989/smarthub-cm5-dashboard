@@ -1,0 +1,25 @@
+name: countdown
+# Redraws the README's "V2.0 in N days" banner every day, onto the separate `countdown` branch,
+# so main's history gets no daily commits. Stop it after the release by deleting this file.
+on:
+  schedule:
+    - cron: "5 16 * * *"  # 00:05 Malaysia time
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/countdown.py", ".github/workflows/countdown.yml"]
+permissions:
+  contents: write
+jobs:
+  draw:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Draw banner and publish to the countdown branch
+        run: |
+          mkdir out && python3 .github/countdown.py out/countdown.svg
+          cd out
+          git init -q -b countdown && git add countdown.svg
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "countdown banner $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" countdown

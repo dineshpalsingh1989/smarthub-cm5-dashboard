@@ -10,6 +10,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e9e5b" alt="MIT License"></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/beta"><img src="https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/countdown/countdown.svg" alt="SmartHub Dashboard V2.0 release countdown: 15 December 2026" width="800"></a>
+</p>
+
 Set up your **IRIV SmartHub CM5** network with just a phone. Hold one button and the SmartHub makes its own WiFi hotspot. Open a web page and choose Ethernet or WiFi settings. No keyboard, screen or app needed.
 
 **You need:** an IRIV SmartHub CM5 running Raspberry Pi OS Bookworm or newer, and a phone or laptop with WiFi.
