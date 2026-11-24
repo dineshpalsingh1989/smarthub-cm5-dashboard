@@ -1,9 +1,9 @@
 #!/bin/bash
 # IRIV SmartHub CM5 - AP dashboard installer / updater. Same command installs or updates:
-#   curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/beta/install.sh | sudo bash
 # A failed board check asks "Skip this check?". Non-interactive: ... | sudo bash -s -- --force
 set -euo pipefail
-REPO=https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/main
+REPO=https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/beta
 DIR=/opt/smarthub
 
 ok()   { echo "  [OK]   $*"; }
@@ -66,7 +66,7 @@ main() {  # wrapped so a half-downloaded script never runs
     done
   fi
   python3 "$tmp/smarthub_ap.py" test >/dev/null || fail "Downloaded code failed its self-test"
-  ok "$(grep -o 'Dashboard V[0-9.]*' "$tmp/smarthub_ap.py") self-tested"
+  ok "$(grep -o 'Dashboard V[0-9.a-z-]*' "$tmp/smarthub_ap.py") self-tested"
 
   echo "== 3/3 Installing =="
   systemctl stop smarthub-ap 2>/dev/null || true  # so our own old copy doesn't count as "port 80 busy"

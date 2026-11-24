@@ -5,11 +5,12 @@ Hold USER button (GPIO4) 5 s -> AP "smarthub" / "smarthub1" on 192.168.4.1 (1 lo
 Hold again 5 s            -> AP off (2 short beeps). Error = 5 fast beeps.
 LED0 (GPIO20) flashes while the AP is on.
 Browse http://192.168.4.1:<SMARTHUB_PORT> while connected to the AP (default port 80).
+The web server only exists while the AP is on: AP off = port closed, free for other software.
 
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
 Needs Raspberry Pi OS Bookworm+ (NetworkManager/nmcli, gpiozero preinstalled).
 """
-import ipaddress, json, os, re, subprocess, sys, threading, time
+import glob, ipaddress, json, os, re, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
@@ -17,7 +18,16 @@ PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/doc
 LOGO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.webp")
 LOGO = open(LOGO_FILE, "rb").read() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
+server = None    # dashboard web server; only running while the AP is up
 scan_cache = []  # wlan0 can't scan while it is the AP, so we scan just before starting it
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip().strip("\0")
+    except OSError:
+        return default
 
 
 def nm(*args, check=True):
@@ -107,13 +117,32 @@ def button_loop(on_hold, hold=5, line=None):
                 wait(3600)
 
 
-def led_loop(led):  # LED0 mirrors real AP state, whatever changed it (button, dashboard, WiFi connect)
-    blinking = False
+def web(on):  # open the dashboard port only while the AP is up; close it (free the port) when it goes down
+    global server
+    if on and server is None:
+        try:
+            server = ThreadingHTTPServer(("192.168.4.1", PORT), Handler)
+        except OSError as e:  # e.g. another app took the port
+            print("Dashboard could not open port", PORT, "-", e, flush=True)
+            buzzer.beep(0.05, 0.05, 5)
+            return
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print("Dashboard open on http://192.168.4.1:%d" % PORT, flush=True)
+    elif not on and server is not None:
+        server.shutdown()
+        server.server_close()
+        server = None
+        print("Dashboard closed, port %d is free" % PORT, flush=True)
+
+
+def ap_watch(led):  # LED0 + web server follow the real AP state, whatever changed it (button, dashboard, WiFi)
+    up = False
     while True:
         on = wlan0_is_ap()
-        if on != blinking:
+        if on != up:
             led.blink(0.5, 0.5) if on else led.off()
-            blinking = on
+            web(on)
+            up = on
         time.sleep(2)
 
 
@@ -217,7 +246,107 @@ def status():
         ctrs, derr = [], "Docker is not installed on this SmartHub."
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # e.g. docker daemon stopped
         ctrs, derr = [], "Docker error: " + str(e)
-    return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr}
+    return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr,
+            "usb": usb_devices()}
+
+
+# ---------- USB ports ----------
+def usb_port(name, path):
+    """SmartHub port a USB device sits on. name: sysfs name ("1-1", "5-1.3"); path: its real sysfs path."""
+    m = re.search(r"xhci-hcd\.(\d+)", path)  # the two blue ports each have their own CM5 xhci controller
+    if m:
+        return "USB 3.0 port %d" % (int(m.group(1)) + 1)
+    # black ports + mini PCIe hang off the onboard USB 2.0 hub on the CM5's dwc2 port
+    return "USB 2.0 / mini PCIe (hub port %s)" % name.rsplit(".", 1)[-1] if "." in name else "USB 2.0"
+
+
+def usb_devices(root="/sys/bus/usb/devices"):
+    out = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        d = os.path.join(root, name)
+        if ":" in name or name.startswith("usb") or read(d + "/bDeviceClass") == "09":
+            continue  # interfaces, root hubs, hubs (incl. the onboard hub)
+        vid = read(d + "/idVendor")
+        if vid:
+            out.append({"port": usb_port(name, os.path.realpath(d)),
+                        "name": read(d + "/product") or "Unknown device", "maker": read(d + "/manufacturer"),
+                        "id": vid + ":" + read(d + "/idProduct"), "speed": read(d + "/speed") + " Mb/s"})
+    return out
+
+
+def usb_has(vid_pid, root="/sys/bus/usb/devices"):
+    return any(read(os.path.join(root, n, "idVendor")) + ":" + read(os.path.join(root, n, "idProduct")) == vid_pid
+               for n in (os.listdir(root) if os.path.isdir(root) else []))
+
+
+# ---------- Hardware check (IRIV SmartHub CM5 datasheet) ----------
+def hardware():
+    rows = []
+    add = lambda name, ok, detail: rows.append({"name": name, "ok": ok, "detail": detail})  # ok None = info only
+    model = read("/proc/device-tree/model")
+    add("Compute Module 5", "Compute Module 5" in model, model or "unknown")
+    m = re.search(r"MemTotal:\s+(\d+)", read("/proc/meminfo"))
+    mem = int(m.group(1)) / 1048576 if m else 0
+    add("RAM", mem > 0, "%d GB" % round(mem) if mem else "unknown")
+    emmc = int(read("/sys/block/mmcblk0/size", "0") or 0) * 512
+    add("eMMC storage", emmc > 0, "%.0f GB" % (emmc / 1e9) if emmc else "not found")
+    nvme = sorted(glob.glob("/sys/class/nvme/nvme*"))
+    add("M.2 NVMe SSD", True if nvme else None, read(nvme[0] + "/model") if nvme else "not fitted (optional)")
+    add("WiFi", os.path.exists("/sys/class/net/wlan0"), "wlan0" if os.path.exists("/sys/class/net/wlan0") else "not found")
+    add("Bluetooth", os.path.exists("/sys/class/bluetooth/hci0"), "hci0" if os.path.exists("/sys/class/bluetooth/hci0") else "not found")
+    link = read("/sys/class/net/eth0/carrier") == "1"
+    add("Gigabit Ethernet", True if link else None,
+        "link %s Mb/s" % read("/sys/class/net/eth0/speed") if link else "no cable / no link")
+    add("USB 2.0 hub", usb_has("1a86:8091"), "QinHeng 1a86:8091" if usb_has("1a86:8091") else "not found")
+    for i in (1, 2):
+        st = [read(p) for p in glob.glob("/sys/class/drm/card*-HDMI-A-%d/status" % i)]
+        add("HDMI%d" % (i - 1), None, {"connected": "monitor connected", "disconnected": "no monitor"}.get(st[0] if st else "", "unknown"))
+    rtc = os.path.exists("/sys/class/rtc/rtc0")
+    bv = read("/sys/class/rtc/rtc0/battery_voltage")
+    add("RTC + CR2032", rtc and (not bv or int(bv) > 2500000),
+        (("battery %.2f V" if int(bv) > 2500000 else "battery %.2f V - low or no CR2032 fitted") % (int(bv) / 1e6)
+         if bv else "battery voltage unknown") if rtc else "RTC not found")
+    t = read("/sys/class/thermal/thermal_zone0/temp")
+    add("CPU temperature", int(t) < 80000 if t else None, "%.1f °C" % (int(t) / 1000) if t else "unknown")
+    try:
+        thr = int(subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=5).stdout.split("=")[1], 16)
+        add("Power supply", not thr & 0x1, "under-voltage NOW" if thr & 0x1 else
+            "under-voltage happened since boot" if thr & 0x10000 else "OK, no under-voltage")
+    except (OSError, IndexError, ValueError, subprocess.TimeoutExpired):
+        add("Power supply", None, "unknown (vcgencmd missing)")
+    add("USER button / LED0 / buzzer", True, "GPIO4 / GPIO20 / GPIO19 in use by this dashboard")
+    return rows
+
+
+# ---------- OS + software ----------
+def first_line(cmd):  # version line of a program, or None if not installed
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = (r.stdout.strip() or r.stderr.strip()).splitlines()
+    return lines[0][:70] if lines else None
+
+
+SOFTWARE = [("Docker", ["docker", "--version"]), ("Docker Compose", ["docker", "compose", "version"]),
+            ("NetworkManager", ["nmcli", "--version"]), ("Node.js", ["node", "--version"]),
+            ("Mosquitto MQTT", ["mosquitto", "-h"]), ("Nginx", ["nginx", "-v"]), ("Git", ["git", "--version"])]
+
+
+def system():
+    up = float(read("/proc/uptime", "0").split()[0] or 0)
+    osr = dict(re.findall(r'^(\w+)="?([^"\n]*)"?$', read("/etc/os-release"), re.M))
+    apps = [{"name": "Python", "version": sys.version.split()[0]}]
+    apps += [{"name": n, "version": first_line(c)} for n, c in SOFTWARE]
+    nr = glob.glob("/usr/lib/node_modules/node-red/package.json") + glob.glob("/usr/local/lib/node_modules/node-red/package.json")
+    apps.append({"name": "Node-RED", "version": json.loads(read(nr[0], "{}")).get("version") if nr else None})
+    try:
+        pkgs = len(subprocess.run(["dpkg-query", "-f", ".\n", "-W"], capture_output=True, text=True, timeout=20).stdout.split())
+    except (OSError, subprocess.TimeoutExpired):
+        pkgs = None
+    return {"os": osr.get("PRETTY_NAME", "unknown"), "kernel": os.uname().release if hasattr(os, "uname") else "",
+            "image": read("/etc/rpi-issue").split("\n")[0], "uptime": "%dd %dh %dm" % (up // 86400, up % 86400 // 3600, up % 3600 // 60),
+            "packages": pkgs, "hostname": read("/etc/hostname"), "hardware": hardware(), "software": apps}
 
 
 # ---------- Web server ----------
@@ -234,8 +363,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def allowed(self):  # only devices on the SmartHub AP, or localhost (SSH tunnel)
-        if self.client_address[0].startswith(("192.168.4.", "127.0.0.1")):
+    def allowed(self):  # only devices on the SmartHub AP (server binds 192.168.4.1 only; kept as a 2nd guard)
+        if self.client_address[0].startswith("192.168.4."):
             return True
         self.send(403, {"error": "Connect to the SmartHub AP"})
 
@@ -250,6 +379,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, status())
         elif self.path == "/api/scan":
             self.send(200, wifi_list() or scan_cache)
+        elif self.path == "/api/system":
+            self.send(200, system())
         else:
             self.send(404, {"error": "not found"})
 
@@ -279,6 +410,8 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 .badge{font-size:.75em;padding:2px 8px;border-radius:10px;color:#fff;margin-left:6px;text-transform:uppercase}
 .badge.run{background:#2e9e5b}.badge.stop{background:#8a919c}.badge.err{background:#c0392b}
 .btns button{width:auto;padding:6px 14px;margin:6px 6px 0 0}
+.kv{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:.92em}.kv:last-child{border:0}
+.kv b{flex:0 0 42%;font-weight:600}.kv span{flex:1;color:#444;word-break:break-word}.muted{color:#9aa1ab!important}
 #msg{position:sticky;top:0;padding:10px;border-radius:6px;display:none}#msg.ok{display:block;background:#d8f3dc}#msg.err{display:block;background:#fde2e1}
 </style></head><body>
 <header><img src="/logo.webp" alt="Cytron Technologies" width="140" height="70"><h1>SmartHub CM5 Network</h1></header><div id="msg"></div>
@@ -292,8 +425,12 @@ button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}but
 <p class="note">Connecting turns the AP off (single radio). If it fails, the AP comes back.</p></section>
 <section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
 <label>Password (8-63 chars)</label><input name="password" type="password">
-<button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.4</footer>
+<button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button>
+<p class="note">Turning off the AP also closes this dashboard and frees its port for other software.</p></section>
+<section><h2>USB ports</h2><div id="usb">Loading...</div></section>
+<section><h2>Hardware check</h2><div id="hw">Loading...</div><button onclick="sysload()">Check again</button></section>
+<section><h2>System</h2><div id="sys">Loading...</div><h2 style="margin-top:14px">Software</h2><div id="sw"></div></section>
+<footer class="note" style="text-align:center">SmartHub Network Dashboard V2.0-beta</footer>
 <script>
 const $=s=>document.querySelector(s);
 document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
@@ -317,7 +454,23 @@ async function load(){const s=await (await fetch('/api/status')).json();
     p.textContent=d.device+': '+d.state+' '+d.connection+' '+d.ip;return p}));
   if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=s.ap_ssid;
   const note=t=>{const p=document.createElement('div');p.className='note';p.textContent=t;return p};
-  $('#docker').replaceChildren(...(s.docker_error?[note(s.docker_error)]:s.containers.length?s.containers.map(crow):[note('No containers')]))}
+  $('#docker').replaceChildren(...(s.docker_error?[note(s.docker_error)]:s.containers.length?s.containers.map(crow):[note('No containers')]));
+  const p3=['USB 3.0 port 1','USB 3.0 port 2'],rows=[];  // blue ports always listed; empty ones say so
+  for(const p of p3){const ds=s.usb.filter(d=>d.port==p);
+    rows.push(...(ds.length?ds.map(d=>kv('🔌 '+p,usbtxt(d))):[kv('⚪ '+p,'empty',1)]))}
+  const u2=s.usb.filter(d=>!p3.includes(d.port));
+  rows.push(...(u2.length?u2.map(d=>kv('🔌 '+d.port,usbtxt(d))):[kv('⚪ USB 2.0 ports','empty',1)]));
+  $('#usb').replaceChildren(...rows)}
+function usbtxt(d){return d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed+' · '+d.id}
+function kv(k,v,muted){const r=document.createElement('div');r.className='kv';
+  r.innerHTML='<b></b><span></span>';r.querySelector('b').textContent=k;const s=r.querySelector('span');
+  s.textContent=v;if(muted)s.className='muted';return r}
+async function sysload(){$('#hw').textContent='Checking...';
+  const s=await (await fetch('/api/system')).json();
+  $('#hw').replaceChildren(...s.hardware.map(h=>kv((h.ok===true?'✅ ':h.ok===false?'❌ ':'⚪ ')+h.name,h.detail,h.ok===null)));
+  $('#sys').replaceChildren(kv('OS',s.os),kv('Kernel',s.kernel),kv('OS image',s.image||'unknown'),
+    kv('Hostname',s.hostname),kv('Uptime',s.uptime),kv('Packages installed',s.packages??'unknown'));
+  $('#sw').replaceChildren(...s.software.map(a=>kv(a.name,a.version||'not installed',!a.version)))}
 function crow(c){  // running = green, clean exit = grey, crash/restart loop/dead = red
   const r=document.createElement('div');r.className='ctr';
   const cls=c.state=='running'?'run':(c.state=='created'||/Exited \\(0\\)/.test(c.status))?'stop':'err';
@@ -331,7 +484,7 @@ function crow(c){  // running = green, clean exit = grey, crash/restart loop/dea
 async function dock(name,action){
   if(action=='stop'&&!confirm('Stop '+name+'?'))return;
   msg(action+' '+name+'... please wait');await post('docker',{name,action})}
-load();setInterval(load,10000);
+load();setInterval(load,10000);sysload();
 </script></body></html>"""
 
 
@@ -376,6 +529,23 @@ def selftest():
         except EOFError:
             pass
         assert len(calls) == want, (script, calls)
+    assert usb_port("3-1", "/sys/devices/platform/axi/1000120000.pcie/1f00300000.usb/xhci-hcd.1/usb3/3-1") == "USB 3.0 port 2"
+    assert usb_port("1-1.4", "/sys/devices/x/xhci-hcd.0/usb1/1-1/1-1.4") == "USB 3.0 port 1"  # behind an external hub
+    assert usb_port("5-1.3", "/sys/devices/platform/axi/1000480000.usb/usb5/5-1/5-1.3") == "USB 2.0 / mini PCIe (hub port 3)"
+    import tempfile
+    with tempfile.TemporaryDirectory() as root:  # fake /sys/bus/usb/devices
+        for name, attrs in {"usb5": {"idVendor": "1d6b"}, "5-1": {"idVendor": "1a86", "idProduct": "8091", "bDeviceClass": "09"},
+                            "5-1.3": {"idVendor": "0781", "idProduct": "5567", "product": "Cruzer", "manufacturer": "SanDisk",
+                                      "speed": "480", "bDeviceClass": "00"}, "5-1.3:1.0": {}}.items():
+            if ":" in name and os.name == "nt":
+                continue  # Windows file names can't contain ':' (interface entries only exist on Linux anyway)
+            os.mkdir(os.path.join(root, name))
+            for k, v in attrs.items():
+                with open(os.path.join(root, name, k), "w") as f:
+                    f.write(v + "\n")
+        assert usb_devices(root) == [{"port": "USB 2.0 / mini PCIe (hub port 3)", "name": "Cruzer", "maker": "SanDisk",
+                                      "id": "0781:5567", "speed": "480 Mb/s"}], usb_devices(root)
+        assert usb_has("1a86:8091", root) and not usb_has("dead:beef", root)
     for bad in ({"action": "rm", "name": "x"}, {"action": "exec"}):  # only start/stop/restart reach docker
         try:
             set_docker(bad)
@@ -389,10 +559,9 @@ def main():
     global buzzer
     from gpiozero import LED, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
-    threading.Thread(target=led_loop, args=(LED(20),), daemon=True).start()  # LED0 flashes while AP on
     threading.Thread(target=button_loop, args=(toggle,), daemon=True).start()  # USER button pulls GPIO4 to GND
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    ap_watch(LED(20))  # LED0 flashes + dashboard port open only while the AP is on
 
 
 if __name__ == "__main__":
