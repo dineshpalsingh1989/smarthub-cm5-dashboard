@@ -9,12 +9,82 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e9e5b" alt="MIT License"></a>
 </p>
 
-> 🧪 **This is the `beta` branch (V2.0-beta): for testing, not for production.** It adds USB port status, a hardware check, OS and software info, and frees the dashboard port while the hotspot is off. Stable version: [`main`](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/main).
+<p align="center">
+  <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/tag/v2.0-beta"><img src="https://img.shields.io/badge/V2.0-beta-ffd23f?labelColor=1d2330" alt="V2.0 beta"></a>
+</p>
+
+> 🧪 **This is the `beta` branch: V2.0 beta, for testing and not yet for production.** The stable version is [V1.4 on `main`](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/main).
 >
-> Install the beta (same checks as the stable installer; installing `main` again switches back):
+> Install the beta. The installer runs the same checks as the stable one, and running the `main` install line again switches back:
 > ```bash
 > curl -fsSL https://raw.githubusercontent.com/dineshpalsingh1989/smarthub-cm5-dashboard/beta/install.sh | sudo bash
 > ```
+> Or download `smarthub-cm5-dashboard-v2.0-beta.zip` from the [V2.0 beta release](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/tag/v2.0-beta).
+
+## 🆕 What's new in V2.0
+
+### 1 · A new dashboard: overview tiles and three tabs
+
+<p align="center"><img src="docs/v2-tabs.svg" alt="New dashboard with overview tiles and Network, Devices and System tabs" width="760"></p>
+
+- **Overview tiles** at the top show Ethernet IP, WiFi, USB devices, Docker, CPU temperature and hardware issues. A green, amber or red dot on each makes problems easy to spot.
+- **Three tabs** mean less scrolling on a phone:
+  - **Network:** connections, Ethernet, WiFi and hotspot
+  - **Devices:** USB ports and Docker
+  - **System:** hardware check, OS and software
+- A **DHCP / Static switch** replaces the dropdown. Messages pop up at the bottom, and dark mode follows your phone's setting.
+
+### 2 · USB ports, hardware check, OS and software
+
+<p align="center"><img src="docs/v2-usb-hw.svg" alt="USB ports list and hardware checklist" width="760"></p>
+
+| Section | What it shows |
+|---|---|
+| **USB ports** | Each port and what's plugged in (name, maker, speed), for example `USB 3.0 port 1: SanDisk · 5000 Mb/s`. Empty ports say **empty**. The black USB 2.0 ports and the mini PCIe slot are listed by their position on the onboard USB hub. |
+| **Hardware check** (from the SmartHub datasheet) | CM5 model, RAM, eMMC, M.2 NVMe (optional), WiFi, Bluetooth, Ethernet link speed, USB 2.0 hub, HDMI0/1 monitor, RTC + CR2032 battery, CPU temperature, power under-voltage, and the button/LED/buzzer pins. Press **Check again** to refresh. |
+| **System** | OS version, kernel, OS image date, hostname, uptime, number of packages installed |
+| **Software** | Versions of Python, Docker, Docker Compose, NetworkManager, Node.js, Node-RED, Mosquitto, Nginx and Git, or *not installed* |
+
+### 3 · The port is freed when the hotspot is off
+
+<p align="center"><img src="docs/v2-port.svg" alt="Hotspot on: port open for dashboard. Hotspot off: port closed and free" width="760"></p>
+
+- The dashboard's web server **only runs while the hotspot is on**, and only on the hotspot address (`192.168.4.1`).
+- When you turn the hotspot off, the server **stops and the port closes**, so other software can use it.
+- The USER button keeps listening in the background with ~0% CPU, ready to turn the hotspot on again.
+
+### 4 · Still very light
+
+- The whole page is **12.4 KB**: no frameworks, no web fonts, nothing loaded from the internet.
+- The page **stops refreshing while the browser tab is in the background,** so a forgotten phone doesn't keep the SmartHub busy.
+- With the hotspot off, only the same tiny button watcher runs as in V1.2+ (measured at about 0.03% of one core).
+
+### See it
+
+<p align="center"><img src="docs/v2-screens.png" alt="V2.0 dashboard: Network, Devices and System tabs" width="800"><br><sub>Network, Devices and System tabs (sample data)</sub></p>
+
+### V1.4 vs V2.0
+
+| | V1.4 (stable) | V2.0 (beta) |
+|---|---|---|
+| Network setup (Ethernet / WiFi / hotspot) | ✅ | ✅ |
+| Docker start / stop / restart | ✅ | ✅ |
+| Overview tiles + tabs + dark mode | ❌ | ✅ |
+| USB ports: what's plugged in | ❌ | ✅ |
+| Hardware check from the datasheet | ❌ | ✅ |
+| OS + software versions | ❌ | ✅ |
+| Port closed and freed while hotspot is off | ❌ (always open) | ✅ |
+| Open through an SSH tunnel while hotspot is off | ✅ | ❌ (port is closed) |
+
+### Beta: still to confirm on real hardware
+
+- **Port labels.** That "USB 3.0 port 1/2" and "hub port N" match the physical ports. Plug a device into each port, one at a time, to check.
+- **RTC battery voltage and HDMI monitor status.** These depend on Raspberry Pi OS reporting them. If it doesn't, the rows show *unknown*.
+- **Port open/close** when the hotspot turns on and off.
+
+Please report anything odd on [GitHub Issues](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/issues).
+
+---
 
 Set up your **IRIV SmartHub CM5** network with just a phone. Hold one button and the SmartHub makes its own WiFi hotspot. Open a web page and choose Ethernet or WiFi settings. No keyboard, screen or app needed.
 
@@ -128,25 +198,13 @@ Open any browser and type the address the installer printed:
 - **`http://192.168.4.1:8080`** if another app (such as Beaver-IoT) already uses port 80
 - **`http://192.168.4.1`** otherwise
 
-> 🔒 **The dashboard only opens through the SmartHub hotspot.** When the hotspot is off, or you are on your normal office/factory network, the page is blocked: it shows *"Connect to the SmartHub AP"*. This is on purpose. The dashboard has no login and can change network settings and stop Docker containers, so a person must be at the device and hold the USER button to use it.
+> 🔒 **The dashboard only opens through the SmartHub hotspot.** In V2.0 it only runs while the hotspot is on, and only on the hotspot address `192.168.4.1`. From your normal office or factory network the page doesn't open at all, and with the hotspot off the port is closed. This is on purpose. The dashboard has no login and can change network settings and stop Docker containers, so a person must be at the device and hold the USER button to use it.
 >
 > | Opened from | Works? |
 > |---|---|
 > | Phone/laptop joined to the `smarthub` WiFi | ✅ |
-> | The SmartHub itself, or through an SSH tunnel (see below) | ✅ |
-> | Any other device on your normal network | ❌ blocked |
->
-> <details>
-> <summary>Need it while the hotspot is off? Use an SSH tunnel</summary>
->
-> From your PC (anyone using this needs the SmartHub's SSH password):
->
-> ```bash
-> ssh -L 8080:127.0.0.1:8080 pi@<smarthub-ip>
-> ```
->
-> Keep that window open, then browse to **http://localhost:8080** on your PC. If the installer said port 80, use `-L 8080:127.0.0.1:80` instead.
-> </details>
+> | Any other device on your normal network | ❌ |
+> | Anything, while the hotspot is off | ❌ (port closed) |
 
 ---
 
@@ -218,7 +276,7 @@ Run the same install line again, or download the newest package from [Releases](
 | Can't see `smarthub` WiFi | Wait 10 s after the beep. Check LED0 is flashing |
 | Page doesn't open | Use the exact address from the installer, with `:8080` if it printed that |
 | Wrong page opens (e.g. Beaver-IoT) | Add `:8080` to the address |
-| Page says *"Connect to the SmartHub AP"* | You are not on the `smarthub` WiFi. Turn the hotspot on (hold USER 5 s) and join it, or use an SSH tunnel |
+| Page still doesn't open | You are not on the `smarthub` WiFi, or the hotspot is off. Hold USER 5 s, wait for the beep, join `smarthub`, then open the address again |
 
 Live log: `sudo journalctl -u smarthub-ap -f`
 
