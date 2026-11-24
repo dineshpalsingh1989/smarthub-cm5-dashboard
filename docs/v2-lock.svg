@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <rect x="2" y="2" width="796" height="296" rx="24" fill="#EAF5FC" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="24" y="16" width="116" height="28" rx="14" fill="#ffd23f" stroke="#1d2330" stroke-width="2"/>
+  <text x="82" y="35" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">NEW in V2.0</text>
+
+  <!-- SmartHub mascot -->
+  <g transform="translate(36 96) scale(.8)">
+    <rect x="-12" y="138" width="224" height="14" rx="5" fill="#3d434d" stroke="#1d2330" stroke-width="3"/>
+    <rect x="160" y="-30" width="16" height="80" rx="8" fill="#5b616c" stroke="#1d2330" stroke-width="4"/>
+    <rect x="0" y="30" width="200" height="115" rx="20" fill="#2b2f36" stroke="#1d2330" stroke-width="4"/>
+    <path d="M22 50h156M22 62h156" stroke="#3f4550" stroke-width="5" stroke-linecap="round"/>
+    <ellipse cx="70" cy="95" rx="11" ry="13" fill="#fff"/><ellipse cx="130" cy="95" rx="11" ry="13" fill="#fff"/>
+    <circle cx="74" cy="97" r="5.5" fill="#1d2330"/><circle cx="134" cy="97" r="5.5" fill="#1d2330"/>
+    <circle cx="76" cy="94" r="2" fill="#fff"/><circle cx="136" cy="94" r="2" fill="#fff"/>
+    <path d="M84 115q16 12 32 0" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="48" cy="114" r="7" fill="#ff8fa3" opacity=".6"/><circle cx="152" cy="114" r="7" fill="#ff8fa3" opacity=".6"/>
+  </g>
+  <!-- shield -->
+  <g transform="translate(240 96)">
+    <path d="M0 0l28 10v24c0 18-12 31-28 38c-16-7-28-20-28-38v-24z" fill="#1E9AD6" stroke="#1d2330" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-11 34l8 8l15-16" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="140" y="262" font-size="15" font-weight="800" fill="#1d2330" text-anchor="middle">Hotspot devices get</text>
+  <text x="140" y="282" font-size="15" font-weight="800" fill="#1d2330" text-anchor="middle">the dashboard only</text>
+
+  <!-- card 1: dashboard allowed -->
+  <rect x="290" y="34" width="238" height="110" rx="14" fill="#fff" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="306" y="54" width="44" height="44" rx="10" fill="#e4f2fb"/>
+  <rect x="317" y="58" width="22" height="36" rx="4" fill="#1d2330"/><rect x="320" y="63" width="16" height="25" rx="2" fill="#fff"/>
+  <rect x="322" y="66" width="12" height="4" rx="2" fill="#1E9AD6"/><rect x="322" y="74" width="12" height="3" rx="1.5" fill="#c5cad3"/><rect x="322" y="80" width="12" height="3" rx="1.5" fill="#c5cad3"/>
+  <circle cx="346" cy="94" r="10" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+  <path d="M341 94l3 3l6 -6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="362" y="74" font-size="15" font-weight="800" fill="#1d2330">Dashboard</text>
+  <text x="362" y="98" font-size="12.5" fill="#6b7684">open from the hotspot</text>
+  <text x="362" y="116" font-size="12.5" fill="#6b7684">only at 192.168.4.1</text>
+
+  <!-- card 2: SSH blocked -->
+  <rect x="542" y="34" width="238" height="110" rx="14" fill="#fff" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="558" y="54" width="44" height="44" rx="10" fill="#1d2330"/>
+  <text x="565" y="82" font-size="15" font-weight="800" fill="#3cc47a" font-family="Consolas,Menlo,monospace">&gt;_</text>
+  <circle cx="598" cy="94" r="10" fill="#d03a2f" stroke="#fff" stroke-width="2"/>
+  <path d="M594 90l8 8M602 90l-8 8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="614" y="74" font-size="15" font-weight="800" fill="#1d2330">Terminal (SSH)</text>
+  <text x="614" y="98" font-size="12.5" fill="#6b7684">blocked for devices</text>
+  <text x="614" y="116" font-size="12.5" fill="#6b7684">on the hotspot</text>
+
+  <!-- card 3: other websites blocked -->
+  <rect x="290" y="158" width="238" height="110" rx="14" fill="#fff" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="306" y="178" width="44" height="44" rx="10" fill="#fde6e4"/>
+  <g fill="none" stroke="#1d2330" stroke-width="2.4"><circle cx="328" cy="200" r="14"/><ellipse cx="328" cy="200" rx="6" ry="14"/><path d="M314 200h28"/></g>
+  <circle cx="346" cy="218" r="10" fill="#d03a2f" stroke="#fff" stroke-width="2"/>
+  <path d="M342 214l8 8M350 214l-8 8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+  <text x="362" y="198" font-size="15" font-weight="800" fill="#1d2330">Other websites</text>
+  <text x="362" y="222" font-size="12.5" fill="#6b7684">can't send settings</text>
+  <text x="362" y="240" font-size="12.5" fill="#6b7684">to the dashboard</text>
+
+  <!-- card 4: internet sharing off -->
+  <rect x="542" y="158" width="238" height="110" rx="14" fill="#fff" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="558" y="178" width="44" height="44" rx="10" fill="#eef2f6"/>
+  <rect x="562" y="189" width="36" height="22" rx="11" fill="#c5cad3" stroke="#1d2330" stroke-width="2"/>
+  <circle cx="573" cy="200" r="7.5" fill="#fff" stroke="#1d2330" stroke-width="2"/>
+  <text x="614" y="198" font-size="15" font-weight="800" fill="#1d2330">Internet sharing</text>
+  <text x="614" y="222" font-size="12.5" fill="#6b7684">off by default</text>
+  <text x="614" y="240" font-size="12.5" fill="#6b7684">Safety options switch</text>
+</svg>

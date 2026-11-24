@@ -54,20 +54,20 @@
   <circle cx="500" cy="190" r="18" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
   <text x="500" y="195" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">or</text>
 
-  <!-- phone: Turn off AP -->
+  <!-- phone: Turn off hotspot -->
   <rect x="524" y="26" width="110" height="214" rx="18" fill="#1d2330"/>
   <rect x="532" y="44" width="94" height="186" rx="8" fill="#f2f4f7"/>
   <rect x="566" y="33" width="26" height="5" rx="2.5" fill="#3d434d"/>
   <rect x="538" y="52" width="40" height="7" rx="3.5" fill="#1E9AD6"/>
   <rect x="538" y="68" width="82" height="152" rx="6" fill="#fff"/>
-  <text x="544" y="84" font-size="9" font-weight="800" fill="#1d2330">Access Point</text>
+  <text x="544" y="84" font-size="9" font-weight="800" fill="#1d2330">Hotspot</text>
   <rect x="544" y="92" width="70" height="14" rx="3" fill="#fff" stroke="#c5cad3"/>
   <text x="548" y="102" font-size="8" fill="#1d2330">smarthub</text>
   <rect x="544" y="112" width="70" height="14" rx="3" fill="#fff" stroke="#c5cad3"/>
   <rect x="544" y="134" width="70" height="16" rx="4" fill="#1E9AD6"/>
   <text x="579" y="145" font-size="8" fill="#fff" text-anchor="middle">Save</text>
   <rect x="544" y="158" width="70" height="20" rx="4" fill="#c0392b"/>
-  <text x="579" y="171" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">Turn off AP</text>
+  <text x="579" y="171" font-size="7.5" font-weight="700" fill="#fff" text-anchor="middle">Turn off hotspot</text>
   <circle cx="612" cy="176" r="6" fill="none" stroke="#ffd23f" stroke-width="3">
     <animate attributeName="r" values="4;11;4" dur="1.2s" repeatCount="indefinite"/>
     <animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite"/>

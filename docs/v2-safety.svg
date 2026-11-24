@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <rect x="2" y="2" width="796" height="296" rx="24" fill="#EAF5FC" stroke="#cfe6f5" stroke-width="3"/>
+  <rect x="24" y="16" width="116" height="28" rx="14" fill="#ffd23f" stroke="#1d2330" stroke-width="2"/>
+  <text x="82" y="35" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">NEW in V2.0</text>
+
+  <!-- ===== left: auto-off ===== -->
+  <text x="205" y="70" font-size="18" font-weight="800" fill="#0B5E92" text-anchor="middle">Auto-off</text>
+  <text x="205" y="92" font-size="13" fill="#6b7684" text-anchor="middle">nobody on the hotspot for 15 min</text>
+  <!-- sleepy SmartHub -->
+  <g transform="translate(50 122) scale(.55)">
+    <rect x="-12" y="138" width="224" height="14" rx="5" fill="#3d434d" stroke="#1d2330" stroke-width="3"/>
+    <rect x="160" y="-30" width="16" height="80" rx="8" fill="#5b616c" stroke="#1d2330" stroke-width="4"/>
+    <rect x="0" y="30" width="200" height="115" rx="20" fill="#2b2f36" stroke="#1d2330" stroke-width="4"/>
+    <path d="M22 50h156M22 62h156" stroke="#3f4550" stroke-width="5" stroke-linecap="round"/>
+    <path d="M58 95q12 10 24 0M118 95q12 10 24 0" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+    <ellipse cx="100" cy="120" rx="6" ry="5" fill="#fff"/>
+    <circle cx="48" cy="114" r="7" fill="#ff8fa3" opacity=".6"/><circle cx="152" cy="114" r="7" fill="#ff8fa3" opacity=".6"/>
+  </g>
+  <g font-weight="800" fill="#1E9AD6">
+    <text x="166" y="140" font-size="13">z<animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite"/></text>
+    <text x="177" y="126" font-size="16">z<animate attributeName="opacity" values="0;1;0" dur="2s" begin=".5s" repeatCount="indefinite"/></text>
+    <text x="190" y="111" font-size="20">Z<animate attributeName="opacity" values="0;1;0" dur="2s" begin="1s" repeatCount="indefinite"/></text>
+  </g>
+  <!-- clock -->
+  <circle cx="290" cy="160" r="46" fill="#fff" stroke="#1d2330" stroke-width="3"/>
+  <path d="M290 160V114A46 46 0 0 1 336 160Z" fill="#1E9AD6" opacity=".25"/>
+  <g stroke="#1d2330" stroke-width="3" stroke-linecap="round"><path d="M290 120v6M330 160h-6M290 200v-6M250 160h6"/></g>
+  <path d="M290 160V128" stroke="#1d2330" stroke-width="4" stroke-linecap="round"/>
+  <path d="M290 160h28" stroke="#0a84c6" stroke-width="4" stroke-linecap="round">
+    <animateTransform attributeName="transform" type="rotate" values="-90 290 160;0 290 160;0 290 160" keyTimes="0;.8;1" dur="4s" repeatCount="indefinite"/>
+  </path>
+  <circle cx="290" cy="160" r="4" fill="#1d2330"/>
+  <text x="290" y="226" font-size="13" font-weight="800" fill="#0B5E92" text-anchor="middle">15 min</text>
+  <!-- result -->
+  <rect x="50" y="242" width="310" height="40" rx="12" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
+  <circle cx="72" cy="262" r="7" fill="#d5dbe2" stroke="#9aa1ab" stroke-width="1.5"/>
+  <text x="88" y="267" font-size="14" font-weight="800" fill="#1d2330">Hotspot OFF · port free · 2 beeps</text>
+
+  <!-- ===== divider ===== -->
+  <path d="M400 60V284" stroke="#9fc9e4" stroke-width="2.5" stroke-dasharray="6 6"/>
+
+  <!-- ===== right: 15 s network reset ===== -->
+  <text x="600" y="70" font-size="18" font-weight="800" fill="#c27c0e" text-anchor="middle">Network reset</text>
+  <text x="600" y="92" font-size="13" fill="#6b7684" text-anchor="middle">keep holding USER for 15 s</text>
+  <!-- timeline -->
+  <rect x="450" y="145" width="310" height="10" rx="5" fill="#d5dbe2"/>
+  <rect x="450" y="145" width="0" height="10" rx="5" fill="#1E9AD6">
+    <animate attributeName="width" values="0;310;310" keyTimes="0;.75;1" dur="4s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="434" y="130" width="34" height="40" rx="8" fill="#2b2f36" stroke="#1d2330" stroke-width="2.5"/>
+  <circle cx="451" cy="150" r="9" fill="#ffd23f" stroke="#1d2330" stroke-width="2"/>
+  <text x="451" y="122" font-size="11" font-weight="800" fill="#1d2330" text-anchor="middle">USER</text>
+  <circle cx="560" cy="150" r="10" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
+  <circle cx="760" cy="150" r="10" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
+  <text x="560" y="128" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">5 s</text>
+  <text x="760" y="128" font-size="13" font-weight="800" fill="#1d2330" text-anchor="middle">15 s</text>
+  <text x="560" y="182" font-size="11.5" fill="#6b7684" text-anchor="middle">1 beep: hotspot on/off</text>
+  <text x="770" y="182" font-size="11.5" font-weight="700" fill="#c27c0e" text-anchor="end">3 beeps: reset</text>
+  <!-- result card -->
+  <rect x="430" y="198" width="344" height="88" rx="12" fill="#fff" stroke="#1d2330" stroke-width="2.5"/>
+  <g fill="#1f9d55"><circle cx="452" cy="220" r="7"/><circle cx="452" cy="243" r="7"/><circle cx="452" cy="266" r="7"/></g>
+  <path d="M449 220l2 2l4 -4M449 243l2 2l4 -4M449 266l2 2l4 -4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <g font-size="13.5" fill="#1d2330">
+    <text x="466" y="225">Ethernet + WiFi back to <tspan font-weight="800">DHCP</tspan></text>
+    <text x="466" y="248">Hotspot <tspan font-weight="800">smarthub / smarthub1</tspan>, on</text>
+    <text x="466" y="271">Saved WiFi networks kept</text>
+  </g>
+</svg>

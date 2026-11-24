@@ -14,7 +14,7 @@
   <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/tag/v2.0-beta"><img src="https://img.shields.io/badge/V2.0-beta-ffd23f?labelColor=1d2330" alt="V2.0 beta"></a>
 </p>
 
-> 🧪 **This is the `beta` branch: V2.0 beta, for testing and not yet for production.** The stable version is [V1.4 on `main`](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/main).
+> 🧪 **This is the `beta` branch: V2.0 beta, for testing and not yet for production.** The stable version is [V1.4.1 on `main`](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/tree/main).
 >
 > Install the beta. The installer runs the same checks as the stable one, and running the `main` install line again switches back:
 > ```bash
@@ -23,6 +23,21 @@
 > Or download `smarthub-cm5-dashboard-v2.0-beta.zip` from the [V2.0 beta release](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/tag/v2.0-beta).
 
 ## 🆕 What's new in V2.0
+
+**V2.0 at a glance**
+
+| | Feature | Where |
+|---|---|---|
+| 🧭 | New dashboard: overview tiles, Network / Devices / System tabs, dark mode | Whole page |
+| 🔌 | USB ports and what's plugged in | Devices tab |
+| 🩺 | Hardware check from the SmartHub datasheet | System tab |
+| 🧾 | OS version, kernel, uptime, installed software | System tab |
+| 🚪 | Port closed and freed while the hotspot is off | Automatic |
+| ⏲️ | Hotspot turns itself off when nobody is connected (15 min) | Safety options |
+| 🛟 | Network reset: hold USER 15 s | USER button |
+| 🌐 | Internet sharing for hotspot devices, off by default | Safety options |
+| 🔒 | No terminal (SSH) for hotspot devices, other websites blocked | Automatic |
+| ✅ | Automatic tests on every GitHub update | GitHub Actions |
 
 ### 1 · A new dashboard: overview tiles and three tabs
 
@@ -56,6 +71,8 @@
 
 ### 4 · Safety options: auto-off and network reset
 
+<p align="center"><img src="docs/v2-safety.svg" alt="Auto-off after 15 minutes with nobody connected; hold USER 15 seconds to reset the network" width="760"></p>
+
 Find them in the **Network** tab, card **Safety options**. They are saved on the SmartHub and kept when you update.
 
 | Option | Default | What it does |
@@ -73,6 +90,8 @@ How the button works now:
 
 ### 5 · Locked down for safety
 
+<p align="center"><img src="docs/v2-lock.svg" alt="Hotspot devices get the dashboard only: SSH blocked, other websites blocked, internet sharing off" width="760"></p>
+
 - **No terminal for hotspot devices.** The installer blocks SSH logins from the hotspot (`192.168.4.x`). Hotspot devices can only use the dashboard. SSH from your normal network keeps working.
 - **Other websites can't use the dashboard.** A web page open on the phone, even one loaded over mobile data, can't send settings to the SmartHub. The dashboard only accepts its own page (checks the address, `Origin` and JSON-only requests).
 - **No stuck connections.** Requests are limited to 4 KB, and a device that goes silent for 10 seconds is disconnected.
@@ -81,17 +100,23 @@ How the button works now:
 
 ### 6 · Still very light
 
-- The whole page is **12.4 KB**: no frameworks, no web fonts, nothing loaded from the internet.
+- The whole page is **about 14 KB**: no frameworks, no web fonts, nothing loaded from the internet.
 - The page **stops refreshing while the browser tab is in the background,** so a forgotten phone doesn't keep the SmartHub busy.
 - With the hotspot off, only the same tiny button watcher runs as in V1.2+ (measured at about 0.03% of one core).
+- The new safety features add almost nothing: the "is anyone connected?" check runs every 30 s, and only while the hotspot is on.
 
 ### See it
 
 <p align="center"><img src="docs/v2-screens.png" alt="V2.0 dashboard: Network, Devices and System tabs" width="800"><br><sub>Network, Devices and System tabs (sample data)</sub></p>
 
-### V1.4 vs V2.0
+<details>
+<summary><b>See the whole Network tab, with Safety options</b></summary>
+<p align="center"><img src="docs/v2-network.png" alt="Network tab: connections, Ethernet, WiFi, hotspot and safety options" width="360"></p>
+</details>
 
-| | V1.4 (stable) | V2.0 (beta) |
+### V1.4.1 vs V2.0
+
+| | V1.4.1 (stable) | V2.0 (beta) |
 |---|---|---|
 | Network setup (Ethernet / WiFi / hotspot) | ✅ | ✅ |
 | Docker start / stop / restart | ✅ | ✅ |
@@ -103,6 +128,7 @@ How the button works now:
 | Hotspot turns off by itself when nobody is connected | ❌ | ✅ |
 | Network reset: hold USER 15 s | ❌ | ✅ |
 | SSH blocked for hotspot devices, other websites blocked | ❌ | ✅ |
+| Internet sharing for hotspot devices | Always on | Switch, off by default |
 | Open through an SSH tunnel while hotspot is off | ✅ | ❌ (port is closed) |
 
 ### Beta: still to confirm on real hardware
@@ -202,7 +228,9 @@ The installer **checks your SmartHub before changing anything**. Each check prin
 
 <p align="center"><img src="docs/step2-button.svg" alt="Hold USER 5 seconds: beep, LED0 flashes" width="760"></p>
 
-The **USER** button is on the right side, next to the USB 3.0 ports. Keep holding until you hear **one long beep**. **LED0 starts flashing** while the hotspot is on.
+The **USER** button is on the right side, next to the USB 3.0 ports. Keep holding until you hear **one long beep**, then let go. **LED0 starts flashing** while the hotspot is on.
+
+> 🛟 **Locked out?** Keep holding **USER for 15 seconds** until you hear **3 beeps**: Ethernet and WiFi go back to DHCP, and the hotspot goes back to `smarthub` / `smarthub1`. See [Safety options](#4--safety-options-auto-off-and-network-reset).
 
 ---
 
@@ -216,7 +244,7 @@ On your phone or laptop, open the WiFi settings and join:
 |---|---|
 | **`smarthub`** | **`smarthub1`** |
 
-> Your phone may say *"No internet"*. That is normal: tap **Stay connected**.
+> Your phone may say *"No internet"*. That is normal: internet sharing is off by default. Tap **Stay connected**.
 
 ---
 
@@ -245,25 +273,28 @@ Open any browser and type the address the installer printed:
 
 The dashboard is mainly for **seeing and setting up the SmartHub's network** without a keyboard or screen:
 
-1. **See the IP address.** **Status** shows the IP of **eth0** (Ethernet) and **wlan0** (WiFi), so you know where to find the SmartHub on your network.
+1. **See the IP address.** The **Ethernet** and **WiFi** tiles and the **Connections** card show the IP of **eth0** (Ethernet) and **wlan0** (WiFi), so you know where to find the SmartHub on your network.
 2. **Set up Ethernet.** Choose **Dynamic (DHCP)**, or **Static** and enter the IP / prefix, gateway and DNS. Then press **Apply**.
-3. **Connect the SmartHub to your WiFi.** Press **Search WiFi**, pick your network, enter its password, choose DHCP or Static, then press **Connect**. The SmartHub leaves the hotspot and joins your WiFi. Your phone disconnects because the board has one WiFi radio. Check the new IP in your router, or turn the hotspot on again and look at Status.
+3. **Connect the SmartHub to your WiFi.** Press **Search WiFi**, pick your network, enter its password, choose DHCP or Static, then press **Connect**. The SmartHub leaves the hotspot and joins your WiFi. Your phone disconnects because the board has one WiFi radio. Check the new IP in your router, or turn the hotspot on again and look at **Connections**.
 
 <details>
 <summary><b>See a real screenshot and every section</b></summary>
 
 <table>
 <tr>
-<td width="330"><img src="docs/dashboard.png" alt="Dashboard screenshot" width="320"></td>
+<td width="330"><img src="docs/v2-network.png" alt="Network tab screenshot" width="320"></td>
 <td>
 
 | Section | What you can do |
 |---|---|
-| **Status** | See eth0 / wlan0 state and IP address |
-| **Docker** | See containers: 🟢 running, ⚪ stopped, 🔴 error. **Start**, **Stop** or **Restart** them |
-| **Ethernet** | Choose **Dynamic (DHCP)** or **Static** (IP / prefix, gateway, DNS), then **Apply** |
-| **WiFi** | **Search WiFi**, pick a network, enter its password, choose DHCP or Static, then **Connect** |
-| **Access Point** | Change the hotspot name and password, or **Turn off AP** |
+| **Tiles** (top) | Ethernet IP, WiFi, USB devices, Docker, CPU temperature, hardware issues |
+| **Network · Connections** | eth0 / wlan0 state and IP address |
+| **Network · Ethernet** | Choose **Dynamic (DHCP)** or **Static** (IP / prefix, gateway, DNS), then **Apply** |
+| **Network · Connect to WiFi** | **Search WiFi**, pick a network, enter its password, choose DHCP or Static, then **Connect** |
+| **Network · Hotspot** | Change the hotspot name and password, or **Turn off hotspot** |
+| **Network · Safety options** | Auto-off time, network reset button, internet sharing |
+| **Devices** | USB ports, and Docker containers: 🟢 running, ⚪ stopped, 🔴 error. **Start**, **Stop** or **Restart** them |
+| **System** | Hardware check, OS and software versions |
 
 **Good to know**
 
@@ -280,18 +311,18 @@ The dashboard is mainly for **seeing and setting up the SmartHub's network** wit
 
 ## Step 6 · Turn the hotspot off
 
-<p align="center"><img src="docs/step6-off.svg" alt="Hold USER 5 seconds again or press Turn off AP: two beeps, LED0 off" width="760"></p>
+<p align="center"><img src="docs/step6-off.svg" alt="Hold USER 5 seconds again or press Turn off hotspot: two beeps, LED0 off" width="760"></p>
 
-When you're done, hold **USER** for 5 seconds again: you hear **two short beeps** and **LED0 turns off**. You can also press **Turn off AP** on the dashboard. The SmartHub stays on your network with the settings you made. The dashboard closes until you turn the hotspot on again.
+When you're done, hold **USER** for 5 seconds again: you hear **two short beeps** and **LED0 turns off**. You can also press **Turn off hotspot** on the dashboard. If you forget, it turns itself off after 15 minutes with nobody connected. The SmartHub stays on your network with the settings you made. The dashboard closes and its port is freed until you turn the hotspot on again.
 
 | Sound | Meaning |
 |---|---|
 | 1 long beep | Hotspot on |
-| 2 short beeps | Hotspot off, or WiFi connected |
+| 2 short beeps | Hotspot off (button, dashboard or auto-off), or WiFi connected |
 | 3 beeps (holding USER 15 s) | Network reset: DHCP + default hotspot |
 | 5 fast beeps | Something failed (see Troubleshooting) |
 
-> 🔒 **Security:** change the default password `smarthub1` in **Access Point** for devices in the field. It is published in this README.
+> 🔒 **Security:** change the default password `smarthub1` in the **Hotspot** card for devices in the field. It is published in this README.
 
 ---
 
