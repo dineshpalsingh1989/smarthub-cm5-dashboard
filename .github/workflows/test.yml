@@ -4,8 +4,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: {python-version: "3.11"}  # same Python as Raspberry Pi OS Bookworm
       - name: Python self-test (network args, button timing, USB, docker whitelist)
         run: python3 smarthub_ap.py test
