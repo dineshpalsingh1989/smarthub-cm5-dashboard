@@ -1,9 +1,9 @@
 name: countdown
-# Redraws the README's "V2.0 in N days" banner every day, onto the separate `countdown` branch,
-# so main's history gets no daily commits. Stop it after the release by deleting this file.
+# Redraws the README's "V2.0 in N days, H hours" banner every hour, onto the separate `countdown` branch,
+# so main's history gets no extra commits. Stop it after the release by deleting this file.
 on:
   schedule:
-    - cron: "5 16 * * *"  # 00:05 Malaysia time
+    - cron: "7 * * * *"  # every hour (minute 7: the top of the hour is GitHub's busiest)
   workflow_dispatch:
   push:
     branches: [main]
