@@ -3,6 +3,8 @@
 
 Hold USER button (GPIO4) 5 s -> AP "smarthub" / "smarthub1" on 192.168.4.1 (1 long beep).
 Hold again 5 s            -> AP off (2 short beeps). Error = 5 fast beeps.
+Keep holding to 15 s      -> network reset (3 beeps): eth0 + WiFi DHCP, hotspot smarthub/smarthub1 and on.
+Hotspot turns itself off after N minutes with no one connected (dashboard option, default 15).
 LED0 (GPIO20) flashes while the AP is on.
 Browse http://192.168.4.1:<SMARTHUB_PORT> while connected to the AP (default port 80).
 The web server only exists while the AP is on: AP off = port closed, free for other software.
@@ -15,7 +17,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
 PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/docker runs on the box
-LOGO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.webp")
+HERE = os.path.dirname(os.path.abspath(__file__))
+LOGO_FILE = os.path.join(HERE, "logo.webp")
+SETTINGS_FILE = os.path.join(HERE, "settings.json")  # installer only replaces the .py/.webp, so this survives updates
+DEFAULTS = {"auto_off": 15, "reset_button": True}  # auto_off: minutes with no one on the hotspot, 0 = never
+AUTO_OFF_CHOICES = (0, 5, 10, 15, 30, 60)
 LOGO = pathlib.Path(LOGO_FILE).read_bytes() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
 server = None    # dashboard web server; only running while the AP is up
@@ -28,6 +34,26 @@ def read(path, default=""):
             return f.read().strip().strip("\0")
     except OSError:
         return default
+
+
+def load_settings():
+    try:
+        return {**DEFAULTS, **json.loads(read(SETTINGS_FILE, "{}") or "{}")}
+    except ValueError:  # corrupt file: fall back to defaults
+        return dict(DEFAULTS)
+
+
+settings = load_settings()
+
+
+def set_options(d):
+    m, rb = d.get("auto_off"), d.get("reset_button")
+    if type(m) is not int or m not in AUTO_OFF_CHOICES or not isinstance(rb, bool):
+        raise ValueError("Bad options")
+    settings.update(auto_off=m, reset_button=rb)
+    with open(SETTINGS_FILE + ".tmp", "w") as f:
+        json.dump(settings, f)
+    os.replace(SETTINGS_FILE + ".tmp", SETTINGS_FILE)  # atomic: power loss never leaves a half-written file
 
 
 def nm(*args, check=True):
@@ -83,6 +109,38 @@ def toggle():  # called by the 5 s button hold
         buzzer.beep(0.05, 0.05, 5)
 
 
+def net_reset():  # USER held 15 s: undo network changes that can lock you out (bad static IP, forgotten hotspot password)
+    if not settings["reset_button"]:
+        return
+    buzzer.beep(0.4, 0.2, 3)
+    try:
+        set_eth({"mode": "dhcp"})
+        if nm("-g", "connection.id", "con", "show", WIFI, check=False).strip():  # keep the saved WiFi, just DHCP
+            nm("con", "modify", WIFI, "ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", "", "ipv4.dns", "")
+        ensure_ap()
+        nm("con", "modify", AP, "ssid", "smarthub", "wifi-sec.psk", "smarthub1")
+        nm("con", "up", AP) if ap_active() else ap_on()  # re-up applies the default name/password
+        print("Network reset: eth0 + WiFi DHCP, hotspot smarthub/smarthub1", flush=True)
+    except Exception as e:
+        print("Network reset failed:", e, flush=True)
+        buzzer.beep(0.05, 0.05, 5)
+
+
+def ap_clients():  # phones/laptops joined to the hotspot; None if unknown
+    try:
+        r = subprocess.run(["iw", "dev", "wlan0", "station", "dump"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return None if r.returncode else r.stdout.count("Station ")
+
+
+def idle_tick(since, clients, now, minutes):  # -> (when the hotspot became empty, turn it off now?)
+    if clients != 0 or not minutes:  # someone connected, unknown (iw missing), or auto-off disabled
+        return None, False
+    since = now if since is None else since
+    return since, now - since >= minutes * 60
+
+
 def wlan0_is_ap():  # no subprocess, so it is cheap to poll: AP mode <=> wlan0 holds 192.168.4.1
     import fcntl, socket, struct
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -92,7 +150,7 @@ def wlan0_is_ap():  # no subprocess, so it is cheap to poll: AP mode <=> wlan0 h
             return False
 
 
-def button_loop(on_hold, hold=5, line=None):
+def button_loop(on_hold, hold=5, line=None, on_long=None, long=15):
     # Kernel GPIO edge events: the thread sleeps with zero CPU until the button moves.
     # (gpiozero's Button costs ~1% CPU forever because lgpio polls for edges.)
     if line is None:
@@ -104,15 +162,20 @@ def button_loop(on_hold, hold=5, line=None):
         if line.event_wait(sec=int(t), nsec=int(t % 1 * 1e9)):
             line.event_read_multiple()
 
+    def held_until(end):  # True if the button is still down at monotonic time `end`
+        while line.get_value() == 0 and end - time.monotonic() > 0:
+            wait(end - time.monotonic())
+        return line.get_value() == 0
+
     while True:
         wait(3600)
         if line.get_value():  # high = not pressed
             continue
-        end = time.monotonic() + hold
-        while line.get_value() == 0 and end - time.monotonic() > 0:
-            wait(end - time.monotonic())
-        if line.get_value() == 0:  # still held after 5 s
+        t0 = time.monotonic()
+        if held_until(t0 + hold):  # still held after 5 s
             on_hold()
+            if on_long and held_until(t0 + long):  # kept holding to 15 s
+                on_long()
             while line.get_value() == 0:  # wait for release before re-arming
                 wait(3600)
 
@@ -136,13 +199,20 @@ def web(on):  # open the dashboard port only while the AP is up; close it (free 
 
 
 def ap_watch(led):  # LED0 + web server follow the real AP state, whatever changed it (button, dashboard, WiFi)
-    up = False
+    up, idle, n = False, None, 0
     while True:
         on = wlan0_is_ap()
         if on != up:
             led.blink(0.5, 0.5) if on else led.off()
             web(on)
-            up = on
+            up, idle = on, None
+        n += 1
+        if on and n % 15 == 0:  # every 30 s: is anyone still on the hotspot?
+            idle, off = idle_tick(idle, ap_clients(), time.monotonic(), settings["auto_off"])
+            if off:
+                print("No one on the hotspot for %d min - turning it off" % settings["auto_off"], flush=True)
+                buzzer.beep(0.1, 0.1, 2)
+                ap_off()
         time.sleep(2)
 
 
@@ -247,7 +317,7 @@ def status():
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # e.g. docker daemon stopped
         ctrs, derr = [], "Docker error: " + str(e)
     return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr,
-            "usb": usb_devices()}
+            "usb": usb_devices(), "options": settings}
 
 
 # ---------- USB ports ----------
@@ -350,7 +420,7 @@ def system():
 
 
 # ---------- Web server ----------
-ROUTES = {"/api/eth": set_eth, "/api/wifi": set_wifi, "/api/ap": set_ap, "/api/docker": set_docker,
+ROUTES = {"/api/eth": set_eth, "/api/wifi": set_wifi, "/api/ap": set_ap, "/api/docker": set_docker, "/api/options": set_options,
           "/api/ap/off": lambda d: threading.Timer(1, ap_off).start()}
 
 
@@ -435,6 +505,8 @@ input:focus,select:focus,button:focus-visible{outline:2px solid var(--blue);outl
 .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;margin-left:6px}
 .badge.g{background:var(--green2);color:var(--green)}.badge.r{background:var(--red2);color:var(--red)}.badge.n{background:var(--bg);color:var(--mute)}
 .ctr{padding:10px 0;border-bottom:1px solid var(--line)}.ctr:last-child{border:0}.ctr .s{font-size:13px;color:var(--mute)}
+.chk{display:flex;gap:10px;align-items:flex-start;color:var(--ink);font-size:14px;margin-top:14px;cursor:pointer}
+.chk input{width:18px;height:18px;flex:none;margin:1px 0 0;accent-color:var(--blue)}
 .note{font-size:12.5px;color:var(--mute);margin:10px 0 0}
 #toast{position:fixed;left:50%;bottom:18px;transform:translate(-50%,30px);opacity:0;transition:.25s;background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;max-width:90%;z-index:3}
 #toast.show{opacity:1;transform:translate(-50%,0)}#toast.err{background:var(--red);color:#fff}
@@ -459,6 +531,13 @@ footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
 <label>Password (8-63 characters)</label><input name="password" type="password" autocomplete="new-password">
 <button class="btn" onclick="send('ap')">Save</button><button class="btn red" onclick="if(confirm('Turn off the hotspot? This page will close.'))post('ap/off',{})">Turn off hotspot</button>
 <p class="note">Turning the hotspot off also closes this dashboard and frees its port for other software.</p></section>
+<section class="card" id="opt"><h2>Safety options</h2>
+<label for="autooff">Turn the hotspot off automatically</label><select id="autooff">
+<option value="0">Never</option><option value="5">After 5 min with no one connected</option><option value="10">After 10 min with no one connected</option>
+<option value="15">After 15 min with no one connected</option><option value="30">After 30 min with no one connected</option><option value="60">After 60 min with no one connected</option></select>
+<label class="chk"><input type="checkbox" id="resetbtn"><span>Network reset button<br><small style="color:var(--mute)">Hold USER for 15 s: Ethernet and WiFi go back to DHCP, hotspot back to smarthub / smarthub1 and on (3 beeps)</small></span></label>
+<button class="btn" onclick="post('options',{auto_off:+$('#autooff').value,reset_button:$('#resetbtn').checked})">Save options</button>
+<p class="note">Auto-off frees the dashboard port even if someone forgets to turn the hotspot off.</p></section>
 </div>
 
 <div data-tab="dev" hidden>
@@ -477,7 +556,7 @@ footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
-let S={},Y=null,tt;
+let S={},Y=null,tt,optset=0;
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x==b));
   $$('[data-tab]').forEach(t=>t.hidden=t.dataset.tab!=b.dataset.go);history.replaceState(null,'','#'+b.dataset.go)});
 ($$('nav button').find(b=>'#'+b.dataset.go==location.hash)||{click(){}}).click();  // keep tab on refresh
@@ -517,6 +596,7 @@ async function load(){try{S=await (await fetch('/api/status')).json()}catch(e){r
     d.state=='connected'?'g':'r')));
   $('#pill').textContent='Hotspot on · '+S.ap_ssid;
   if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=S.ap_ssid;
+  if(S.options&&!optset){optset=1;$('#autooff').value=S.options.auto_off;$('#resetbtn').checked=S.options.reset_button}
   $('#docker').replaceChildren(...(S.docker_error?[el('p','note',S.docker_error)]:S.containers.length?S.containers.map(crow):[el('p','note','No containers')]));
   const p3=['USB 3.0 port 1','USB 3.0 port 2'],u=S.usb,us=d=>d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed;
   const rows=[];for(const p of p3){const ds=u.filter(d=>d.port==p);rows.push(...(ds.length?ds.map(d=>kv(p,us(d),'g')):[kv(p,'empty','',1)]))}
@@ -579,6 +659,28 @@ def selftest():
         except EOFError:
             pass
         assert len(calls) == want, (script, calls)
+    for script, want in (([(0, 0), (.3, 1)], ["hold"]),                     # 5 s style hold: toggle only
+                         ([(0, 0), (.6, 1)], ["hold", "long"])):            # held past 15 s style: toggle, then reset
+        calls = []
+        try:
+            button_loop(lambda: calls.append("hold"), hold=.2, line=FakeLine(script),
+                        on_long=lambda: calls.append("long"), long=.5)
+        except EOFError:
+            pass
+        assert calls == want, (script, calls)
+    assert idle_tick(None, 0, 100, 15) == (100, False)          # hotspot just became empty: start the clock
+    assert idle_tick(100, 0, 100 + 899, 15) == (100, False)
+    assert idle_tick(100, 0, 100 + 900, 15) == (100, True)      # empty for 15 min: off
+    assert idle_tick(100, 1, 2000, 15) == (None, False)         # someone joined: clock resets
+    assert idle_tick(100, None, 2000, 15) == (None, False)      # iw missing: never turn off blindly
+    assert idle_tick(100, 0, 2000, 0) == (None, False)          # auto-off disabled
+    for bad in ({"auto_off": 7, "reset_button": True}, {"auto_off": 15, "reset_button": "yes"},
+                {"auto_off": True, "reset_button": True}, {}):
+        try:
+            set_options(bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
     assert usb_port("3-1", "/sys/devices/platform/axi/1000120000.pcie/1f00300000.usb/xhci-hcd.1/usb3/3-1") == "USB 3.0 port 2"
     assert usb_port("1-1.4", "/sys/devices/x/xhci-hcd.0/usb1/1-1/1-1.4") == "USB 3.0 port 1"  # behind an external hub
     assert usb_port("5-1.3", "/sys/devices/platform/axi/1000480000.usb/usb5/5-1/5-1.3") == "USB 2.0 / mini PCIe (hub port 3)"
@@ -609,7 +711,8 @@ def main():
     global buzzer
     from gpiozero import LED, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
-    threading.Thread(target=button_loop, args=(toggle,), daemon=True).start()  # USER button pulls GPIO4 to GND
+    threading.Thread(target=button_loop, args=(toggle,), kwargs={"on_long": net_reset},  # USER pulls GPIO4 to GND
+                     daemon=True).start()
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)
     ap_watch(LED(20))  # LED0 flashes + dashboard port open only while the AP is on
 

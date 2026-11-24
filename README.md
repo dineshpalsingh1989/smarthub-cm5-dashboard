@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/latest"><img src="https://img.shields.io/github/v/release/dineshpalsingh1989/smarthub-cm5-dashboard?label=download&color=1E9AD6" alt="Latest release"></a>
+  <a href="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/actions/workflows/test.yml?query=branch%3Abeta"><img src="https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/actions/workflows/test.yml/badge.svg?branch=beta" alt="Tests (beta)"></a>
   <img src="https://img.shields.io/badge/device-IRIV%20SmartHub%20CM5-2b2f36" alt="IRIV SmartHub CM5">
   <img src="https://img.shields.io/badge/OS-Raspberry%20Pi%20OS%20Bookworm-c51a4a" alt="Raspberry Pi OS Bookworm">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2e9e5b" alt="MIT License"></a>
@@ -53,7 +54,23 @@
 - When you turn the hotspot off, the server **stops and the port closes**, so other software can use it.
 - The USER button keeps listening in the background with ~0% CPU, ready to turn the hotspot on again.
 
-### 4 · Still very light
+### 4 · Safety options: auto-off and network reset
+
+Find them in the **Network** tab, card **Safety options**. They are saved on the SmartHub and kept when you update.
+
+| Option | Default | What it does |
+|---|---|---|
+| **Turn the hotspot off automatically** | After 15 min with no one connected | When no phone or laptop has been on the hotspot for that long, the SmartHub turns it off by itself (2 short beeps, LED0 off) and the dashboard port is freed. Choose 5, 10, 15, 30 or 60 min, or *Never*. |
+| **Network reset button** | On | Keep holding **USER for 15 seconds** (past the 5 s beep) to rescue a SmartHub you can't reach: Ethernet and WiFi go back to **DHCP**, and the hotspot goes back to **`smarthub` / `smarthub1`** and turns on. You hear **3 beeps**. Saved WiFi networks are kept. Untick it if nobody should be able to reset the network from the button. |
+
+How the button works now:
+
+| Hold USER | You hear | What happens |
+|---|---|---|
+| 5 s, then let go | 1 long beep / 2 short beeps | Hotspot on / off (same as before) |
+| 15 s | the 5 s beep, then **3 beeps** | Network reset (if switched on) |
+
+### 5 · Still very light
 
 - The whole page is **12.4 KB**: no frameworks, no web fonts, nothing loaded from the internet.
 - The page **stops refreshing while the browser tab is in the background,** so a forgotten phone doesn't keep the SmartHub busy.
@@ -74,6 +91,8 @@
 | Hardware check from the datasheet | ❌ | ✅ |
 | OS + software versions | ❌ | ✅ |
 | Port closed and freed while hotspot is off | ❌ (always open) | ✅ |
+| Hotspot turns off by itself when nobody is connected | ❌ | ✅ |
+| Network reset: hold USER 15 s | ❌ | ✅ |
 | Open through an SSH tunnel while hotspot is off | ✅ | ❌ (port is closed) |
 
 ### Beta: still to confirm on real hardware
@@ -81,6 +100,7 @@
 - **Port labels.** That "USB 3.0 port 1/2" and "hub port N" match the physical ports. Plug a device into each port, one at a time, to check.
 - **RTC battery voltage and HDMI monitor status.** These depend on Raspberry Pi OS reporting them. If it doesn't, the rows show *unknown*.
 - **Port open/close** when the hotspot turns on and off.
+- **Auto-off and the 15 s network reset.** Auto-off counts connected phones with `iw` (part of Raspberry Pi OS). If `iw` is missing, the hotspot never turns off by itself.
 
 Please report anything odd on [GitHub Issues](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/issues).
 
@@ -257,6 +277,7 @@ When you're done, hold **USER** for 5 seconds again: you hear **two short beeps*
 |---|---|
 | 1 long beep | Hotspot on |
 | 2 short beeps | Hotspot off, or WiFi connected |
+| 3 beeps (holding USER 15 s) | Network reset: DHCP + default hotspot |
 | 5 fast beeps | Something failed (see Troubleshooting) |
 
 > 🔒 **Security:** change the default password `smarthub1` in **Access Point** for devices in the field. It is published in this README.
@@ -277,6 +298,8 @@ Run the same install line again, or download the newest package from [Releases](
 | Page doesn't open | Use the exact address from the installer, with `:8080` if it printed that |
 | Wrong page opens (e.g. Beaver-IoT) | Add `:8080` to the address |
 | Page still doesn't open | You are not on the `smarthub` WiFi, or the hotspot is off. Hold USER 5 s, wait for the beep, join `smarthub`, then open the address again |
+| Hotspot turned off by itself | Auto-off: nobody was connected for 15 min. Hold USER 5 s to turn it on again, or change it in **Safety options** |
+| Forgot the hotspot password, or a wrong static IP | Hold USER for **15 s** until you hear 3 beeps: network back to DHCP, hotspot back to `smarthub` / `smarthub1` |
 
 Live log: `sudo journalctl -u smarthub-ap -f`
 
