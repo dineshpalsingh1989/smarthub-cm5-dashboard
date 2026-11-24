@@ -5,19 +5,29 @@ Hold USER button (GPIO4) 5 s -> AP "smarthub" / "smarthub1" on 192.168.4.1 (1 lo
 Hold again 5 s            -> AP off (2 short beeps). Error = 5 fast beeps.
 LED0 (GPIO20) flashes while the AP is on.
 Browse http://192.168.4.1:<SMARTHUB_PORT> while connected to the AP (default port 80).
+The web server only exists while the AP is on: AP off = port closed, free for other software.
 
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
 Needs Raspberry Pi OS Bookworm+ (NetworkManager/nmcli, gpiozero preinstalled).
 """
-import ipaddress, json, os, re, subprocess, sys, threading, time
+import glob, ipaddress, json, os, pathlib, re, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
 PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/docker runs on the box
 LOGO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.webp")
-LOGO = open(LOGO_FILE, "rb").read() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
+LOGO = pathlib.Path(LOGO_FILE).read_bytes() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
+server = None    # dashboard web server; only running while the AP is up
 scan_cache = []  # wlan0 can't scan while it is the AP, so we scan just before starting it
+
+
+def read(path, default=""):
+    try:
+        with open(path) as f:
+            return f.read().strip().strip("\0")
+    except OSError:
+        return default
 
 
 def nm(*args, check=True):
@@ -107,13 +117,32 @@ def button_loop(on_hold, hold=5, line=None):
                 wait(3600)
 
 
-def led_loop(led):  # LED0 mirrors real AP state, whatever changed it (button, dashboard, WiFi connect)
-    blinking = False
+def web(on):  # open the dashboard port only while the AP is up; close it (free the port) when it goes down
+    global server
+    if on and server is None:
+        try:
+            server = ThreadingHTTPServer(("192.168.4.1", PORT), Handler)
+        except OSError as e:  # e.g. another app took the port
+            print("Dashboard could not open port", PORT, "-", e, flush=True)
+            buzzer.beep(0.05, 0.05, 5)
+            return
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        print("Dashboard open on http://192.168.4.1:%d" % PORT, flush=True)
+    elif not on and server is not None:
+        server.shutdown()
+        server.server_close()
+        server = None
+        print("Dashboard closed, port %d is free" % PORT, flush=True)
+
+
+def ap_watch(led):  # LED0 + web server follow the real AP state, whatever changed it (button, dashboard, WiFi)
+    up = False
     while True:
         on = wlan0_is_ap()
-        if on != blinking:
+        if on != up:
             led.blink(0.5, 0.5) if on else led.off()
-            blinking = on
+            web(on)
+            up = on
         time.sleep(2)
 
 
@@ -217,7 +246,107 @@ def status():
         ctrs, derr = [], "Docker is not installed on this SmartHub."
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # e.g. docker daemon stopped
         ctrs, derr = [], "Docker error: " + str(e)
-    return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr}
+    return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr,
+            "usb": usb_devices()}
+
+
+# ---------- USB ports ----------
+def usb_port(name, path):
+    """SmartHub port a USB device sits on. name: sysfs name ("1-1", "5-1.3"); path: its real sysfs path."""
+    m = re.search(r"xhci-hcd\.(\d+)", path)  # the two blue ports each have their own CM5 xhci controller
+    if m:
+        return "USB 3.0 port %d" % (int(m.group(1)) + 1)
+    # black ports + mini PCIe hang off the onboard USB 2.0 hub on the CM5's dwc2 port
+    return "USB 2.0 / mini PCIe (hub port %s)" % name.rsplit(".", 1)[-1] if "." in name else "USB 2.0"
+
+
+def usb_devices(root="/sys/bus/usb/devices"):
+    out = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        d = os.path.join(root, name)
+        if ":" in name or name.startswith("usb") or read(d + "/bDeviceClass") == "09":
+            continue  # interfaces, root hubs, hubs (incl. the onboard hub)
+        vid = read(d + "/idVendor")
+        if vid:
+            out.append({"port": usb_port(name, os.path.realpath(d)),
+                        "name": read(d + "/product") or "Unknown device", "maker": read(d + "/manufacturer"),
+                        "id": vid + ":" + read(d + "/idProduct"), "speed": read(d + "/speed") + " Mb/s"})
+    return out
+
+
+def usb_has(vid_pid, root="/sys/bus/usb/devices"):
+    return any(read(os.path.join(root, n, "idVendor")) + ":" + read(os.path.join(root, n, "idProduct")) == vid_pid
+               for n in (os.listdir(root) if os.path.isdir(root) else []))
+
+
+# ---------- Hardware check (IRIV SmartHub CM5 datasheet) ----------
+def hardware():
+    rows = []
+    add = lambda name, ok, detail: rows.append({"name": name, "ok": ok, "detail": detail})  # ok None = info only
+    model = read("/proc/device-tree/model")
+    add("Compute Module 5", "Compute Module 5" in model, model or "unknown")
+    m = re.search(r"MemTotal:\s+(\d+)", read("/proc/meminfo"))
+    mem = int(m.group(1)) / 1048576 if m else 0
+    add("RAM", mem > 0, "%d GB" % round(mem) if mem else "unknown")
+    emmc = int(read("/sys/block/mmcblk0/size", "0") or 0) * 512
+    add("eMMC storage", emmc > 0, "%.0f GB" % (emmc / 1e9) if emmc else "not found")
+    nvme = sorted(glob.glob("/sys/class/nvme/nvme*"))
+    add("M.2 NVMe SSD", True if nvme else None, read(nvme[0] + "/model") if nvme else "not fitted (optional)")
+    add("WiFi", os.path.exists("/sys/class/net/wlan0"), "wlan0" if os.path.exists("/sys/class/net/wlan0") else "not found")
+    add("Bluetooth", os.path.exists("/sys/class/bluetooth/hci0"), "hci0" if os.path.exists("/sys/class/bluetooth/hci0") else "not found")
+    link = read("/sys/class/net/eth0/carrier") == "1"
+    add("Gigabit Ethernet", True if link else None,
+        "link %s Mb/s" % read("/sys/class/net/eth0/speed") if link else "no cable / no link")
+    add("USB 2.0 hub", usb_has("1a86:8091"), "QinHeng 1a86:8091" if usb_has("1a86:8091") else "not found")
+    for i in (1, 2):
+        st = [read(p) for p in glob.glob("/sys/class/drm/card*-HDMI-A-%d/status" % i)]
+        add("HDMI%d" % (i - 1), None, {"connected": "monitor connected", "disconnected": "no monitor"}.get(st[0] if st else "", "unknown"))
+    rtc = os.path.exists("/sys/class/rtc/rtc0")
+    bv = read("/sys/class/rtc/rtc0/battery_voltage")
+    add("RTC + CR2032", rtc and (not bv or int(bv) > 2500000),
+        (("battery %.2f V" if int(bv) > 2500000 else "battery %.2f V - low or no CR2032 fitted") % (int(bv) / 1e6)
+         if bv else "battery voltage unknown") if rtc else "RTC not found")
+    t = read("/sys/class/thermal/thermal_zone0/temp")
+    add("CPU temperature", int(t) < 80000 if t else None, "%.1f °C" % (int(t) / 1000) if t else "unknown")
+    try:
+        thr = int(subprocess.run(["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=5).stdout.split("=")[1], 16)
+        add("Power supply", not thr & 0x1, "under-voltage NOW" if thr & 0x1 else
+            "under-voltage happened since boot" if thr & 0x10000 else "OK, no under-voltage")
+    except (OSError, IndexError, ValueError, subprocess.TimeoutExpired):
+        add("Power supply", None, "unknown (vcgencmd missing)")
+    add("USER button / LED0 / buzzer", True, "GPIO4 / GPIO20 / GPIO19 in use by this dashboard")
+    return rows
+
+
+# ---------- OS + software ----------
+def first_line(cmd):  # version line of a program, or None if not installed
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    lines = (r.stdout.strip() or r.stderr.strip()).splitlines()
+    return lines[0][:70] if lines else None
+
+
+SOFTWARE = [("Docker", ["docker", "--version"]), ("Docker Compose", ["docker", "compose", "version"]),
+            ("NetworkManager", ["nmcli", "--version"]), ("Node.js", ["node", "--version"]),
+            ("Mosquitto MQTT", ["mosquitto", "-h"]), ("Nginx", ["nginx", "-v"]), ("Git", ["git", "--version"])]
+
+
+def system():
+    up = float(read("/proc/uptime", "0").split()[0] or 0)
+    osr = dict(re.findall(r'^(\w+)="?([^"\n]*)"?$', read("/etc/os-release"), re.M))
+    apps = [{"name": "Python", "version": sys.version.split()[0]}]
+    apps += [{"name": n, "version": first_line(c)} for n, c in SOFTWARE]
+    nr = glob.glob("/usr/lib/node_modules/node-red/package.json") + glob.glob("/usr/local/lib/node_modules/node-red/package.json")
+    apps.append({"name": "Node-RED", "version": json.loads(read(nr[0], "{}")).get("version") if nr else None})
+    try:
+        pkgs = len(subprocess.run(["dpkg-query", "-f", ".\n", "-W"], capture_output=True, text=True, timeout=20).stdout.split())
+    except (OSError, subprocess.TimeoutExpired):
+        pkgs = None
+    return {"os": osr.get("PRETTY_NAME", "unknown"), "kernel": os.uname().release if hasattr(os, "uname") else "",
+            "image": read("/etc/rpi-issue").split("\n")[0], "uptime": "%dd %dh %dm" % (up // 86400, up % 86400 // 3600, up % 3600 // 60),
+            "packages": pkgs, "hostname": read("/etc/hostname"), "hardware": hardware(), "software": apps}
 
 
 # ---------- Web server ----------
@@ -234,8 +363,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def allowed(self):  # only devices on the SmartHub AP, or localhost (SSH tunnel)
-        if self.client_address[0].startswith(("192.168.4.", "127.0.0.1")):
+    def allowed(self):  # only devices on the SmartHub AP (server binds 192.168.4.1 only; kept as a 2nd guard)
+        if self.client_address[0].startswith("192.168.4."):
             return True
         self.send(403, {"error": "Connect to the SmartHub AP"})
 
@@ -250,6 +379,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, status())
         elif self.path == "/api/scan":
             self.send(200, wifi_list() or scan_cache)
+        elif self.path == "/api/system":
+            self.send(200, system())
         else:
             self.send(404, {"error": "not found"})
 
@@ -266,72 +397,144 @@ class Handler(BaseHTTPRequestHandler):
             self.send(400, {"error": str(e)})
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartHub Network</title>
+PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartHub Dashboard</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:16px;background:#f2f4f7;color:#1d2330}
-h1{font-size:1.3em;margin:4px 0}header{display:flex;align-items:center;gap:12px}header img{flex:none}section{background:#fff;border-radius:10px;padding:14px;margin:12px 0;box-shadow:0 1px 3px #0002}
-h2{font-size:1.05em;margin:0 0 8px}label{display:block;margin:10px 0 3px;font-size:.9em;color:#555}
-input,select,button{width:100%;padding:10px;font-size:1em;box-sizing:border-box;border:1px solid #c5cad3;border-radius:6px}
-button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}button.off{background:#c0392b}
-.static{display:none}.row{font-family:monospace;font-size:.9em;margin:3px 0}.note{font-size:.8em;color:#777}
-.ctr{padding:8px 0;border-bottom:1px solid #eee}.ctr:last-child{border:0}
-.badge{font-size:.75em;padding:2px 8px;border-radius:10px;color:#fff;margin-left:6px;text-transform:uppercase}
-.badge.run{background:#2e9e5b}.badge.stop{background:#8a919c}.badge.err{background:#c0392b}
-.btns button{width:auto;padding:6px 14px;margin:6px 6px 0 0}
-#msg{position:sticky;top:0;padding:10px;border-radius:6px;display:none}#msg.ok{display:block;background:#d8f3dc}#msg.err{display:block;background:#fde2e1}
+:root{--bg:#eef2f6;--card:#fff;--ink:#16202c;--mute:#6b7684;--line:#e2e7ed;--blue:#0a84c6;--blue2:#e4f2fb;--green:#1f9d55;--green2:#e2f5e9;--red:#d03a2f;--red2:#fde6e4;--amber:#c27c0e;--amber2:#fff3d9}
+@media(prefers-color-scheme:dark){:root{--bg:#0f141a;--card:#18202a;--ink:#e6edf3;--mute:#8d99a8;--line:#273241;--blue:#2ea0e0;--blue2:#11314a;--green:#3cc47a;--green2:#12331f;--red:#f0685d;--red2:#3a1816;--amber:#e3a43a;--amber2:#3a2b0e}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+.top{max-width:760px;margin:0 auto;padding:10px 16px 6px;display:flex;align-items:center;gap:12px}
+.top img{height:36px;width:72px}
+.top h1{font-size:16px;margin:0;flex:1;line-height:1.2}.top h1 small{display:block;font-weight:400;color:var(--mute);font-size:12px}
+.pill{font-size:12px;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--amber2);color:var(--amber);white-space:nowrap}
+nav{max-width:760px;margin:0 auto;padding:4px 16px 10px;display:flex;gap:6px}
+nav button{flex:1;padding:8px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font:inherit;font-weight:600;cursor:pointer}
+nav button.on{background:var(--blue2);color:var(--blue)}
+main{max-width:760px;margin:0 auto;padding:14px 16px 28px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}
+.tile .k{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.tile .v{font-size:16px;font-weight:700;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line);display:inline-block;flex:none}
+.dot.g{background:var(--green)}.dot.r{background:var(--red)}.dot.a{background:var(--amber)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+label{display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)}
+input,select{width:100%;padding:10px;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.btn{width:100%;margin-top:12px;padding:11px;border:0;border-radius:8px;background:var(--blue);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.btn.red{background:var(--red)}.btn.ghost{background:var(--blue2);color:var(--blue)}
+.btn.sm{width:auto;padding:6px 12px;margin:8px 6px 0 0;font-size:13px}
+.seg{display:flex;background:var(--bg);border-radius:8px;padding:3px}
+.seg button{flex:1;border:0;background:transparent;padding:8px;border-radius:6px;font:inherit;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px #0003}
+.kv{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}.kv:last-child{border:0}
+.kv b{flex:0 0 44%;font-weight:600;display:flex;gap:7px;align-items:center}.kv span{flex:1;color:var(--mute);word-break:break-word}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;margin-left:6px}
+.badge.g{background:var(--green2);color:var(--green)}.badge.r{background:var(--red2);color:var(--red)}.badge.n{background:var(--bg);color:var(--mute)}
+.ctr{padding:10px 0;border-bottom:1px solid var(--line)}.ctr:last-child{border:0}.ctr .s{font-size:13px;color:var(--mute)}
+.note{font-size:12.5px;color:var(--mute);margin:10px 0 0}
+#toast{position:fixed;left:50%;bottom:18px;transform:translate(-50%,30px);opacity:0;transition:.25s;background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;max-width:90%;z-index:3}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.err{background:var(--red);color:#fff}
+footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
+[hidden]{display:none!important}
 </style></head><body>
-<header><img src="/logo.webp" alt="Cytron Technologies" width="140" height="70"><h1>SmartHub CM5 Network</h1></header><div id="msg"></div>
-<section><h2>Status</h2><div id="status">Loading...</div></section>
-<section><h2>Docker</h2><div id="docker">Loading...</div></section>
-<section id="eth"><h2>Ethernet (eth0)</h2><div class="ipf"></div><button onclick="send('eth')">Apply</button></section>
-<section id="wifi"><h2>WiFi</h2><button onclick="scan()">Search WiFi</button>
-<label>Network</label><select name="ssid"><option value="">- press Search -</option></select>
-<label>Password (blank for open network)</label><input name="password" type="password">
-<div class="ipf"></div><button onclick="send('wifi')">Connect</button>
-<p class="note">Connecting turns the AP off (single radio). If it fails, the AP comes back.</p></section>
-<section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
-<label>Password (8-63 chars)</label><input name="password" type="password">
-<button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V1.4</footer>
+<header><div class="top"><img src="/logo.webp" alt="Cytron Technologies"><h1>SmartHub CM5<small>Network dashboard</small></h1><span class="pill" id="pill">Hotspot on</span></div>
+<nav><button class="on" data-go="net">Network</button><button data-go="dev">Devices</button><button data-go="sys">System</button></nav></header>
+<main>
+<div class="tiles" id="tiles"></div>
+
+<div data-tab="net">
+<section class="card"><h2>Connections</h2><div id="status">Loading...</div></section>
+<section class="card" id="eth"><h2>Ethernet (eth0)</h2><div class="ipf"></div><button class="btn" onclick="send('eth')">Apply</button>
+<p class="note">Changing Ethernet can change the SmartHub's IP address on your wired network.</p></section>
+<section class="card" id="wifi"><h2>Connect to WiFi</h2><button class="btn ghost" onclick="scan()">Search WiFi</button>
+<label>Network</label><select name="ssid"><option value="">Press Search WiFi first</option></select>
+<label>Password (blank for open network)</label><input name="password" type="password" autocomplete="off">
+<div class="ipf"></div><button class="btn" onclick="send('wifi')">Connect</button>
+<p class="note">Connecting turns the hotspot off (one WiFi radio). If it fails, the hotspot comes back.</p></section>
+<section class="card" id="ap"><h2>Hotspot</h2><label>Name (SSID)</label><input name="ssid">
+<label>Password (8-63 characters)</label><input name="password" type="password" autocomplete="new-password">
+<button class="btn" onclick="send('ap')">Save</button><button class="btn red" onclick="if(confirm('Turn off the hotspot? This page will close.'))post('ap/off',{})">Turn off hotspot</button>
+<p class="note">Turning the hotspot off also closes this dashboard and frees its port for other software.</p></section>
+</div>
+
+<div data-tab="dev" hidden>
+<section class="card"><h2>USB ports</h2><div id="usb">Loading...</div></section>
+<section class="card"><h2>Docker</h2><div id="docker">Loading...</div></section>
+</div>
+
+<div data-tab="sys" hidden>
+<section class="card"><h2>Hardware check <button class="btn ghost sm" style="margin:0" onclick="sysload()">Check again</button></h2><div id="hw">Loading...</div></section>
+<section class="card"><h2>System</h2><div id="sys">Loading...</div></section>
+<section class="card"><h2>Software</h2><div id="sw">Loading...</div></section>
+</div>
+</main>
+<footer>SmartHub Network Dashboard V2.0-beta</footer>
+<div id="toast" role="status"></div>
 <script>
-const $=s=>document.querySelector(s);
-document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
-<select name="mode" onchange="this.parentNode.querySelector('.static').style.display=this.value=='static'?'block':'none'">
-<option value="dhcp">Dynamic (DHCP)</option><option value="static">Static</option></select>
-<div class="static"><label>IP address / prefix</label><input name="ip" placeholder="192.168.1.50/24">
-<label>Gateway</label><input name="gateway" placeholder="192.168.1.1">
-<label>DNS</label><input name="dns" placeholder="8.8.8.8, 1.1.1.1"></div>`);
-function msg(t,err){const m=$('#msg');m.textContent=t;m.className=err?'err':'ok'}
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+let S={},Y=null,tt;
+$$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x==b));
+  $$('[data-tab]').forEach(t=>t.hidden=t.dataset.tab!=b.dataset.go);history.replaceState(null,'','#'+b.dataset.go)});
+($$('nav button').find(b=>'#'+b.dataset.go==location.hash)||{click(){}}).click();  // keep tab on refresh
+$$('.ipf').forEach(e=>{e.innerHTML=`<label>IP address</label><div class="seg"><button type="button" class="on" data-m="dhcp">Dynamic (DHCP)</button>
+<button type="button" data-m="static">Static</button></div><input type="hidden" name="mode" value="dhcp">
+<div class="static" hidden><label>IP address / prefix</label><input name="ip" placeholder="192.168.1.50/24">
+<label>Gateway</label><input name="gateway" placeholder="192.168.1.1"><label>DNS</label><input name="dns" placeholder="8.8.8.8, 1.1.1.1"></div>`;
+  e.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{e.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x==b));
+    e.querySelector('[name=mode]').value=b.dataset.m;e.querySelector('.static').hidden=b.dataset.m!='static'})});
+function toast(t,err){const m=$('#toast');m.textContent=t;m.className='show'+(err?' err':'');clearTimeout(tt);tt=setTimeout(()=>m.className='',4000)}
 async function post(path,data){
   try{const r=await fetch('/api/'+path,{method:'POST',body:JSON.stringify(data)});const j=await r.json();
-    if(r.ok){msg('Applied');setTimeout(load,2000)}else msg(j.error,1)}
-  catch(e){msg('Connection lost - SmartHub is switching network',1)}}
-function send(id){const d={};document.querySelectorAll('#'+id+' [name]').forEach(e=>d[e.name]=e.value);post(id,d)}
-async function scan(){msg('Searching...');
+    if(r.ok){toast('Applied');setTimeout(load,2000)}else toast(j.error,1)}
+  catch(e){toast('Connection lost - SmartHub is switching network',1)}}
+function send(id){const d={};$$('#'+id+' [name]').forEach(e=>d[e.name]=e.value);post(id,d)}
+async function scan(){toast('Searching...');
   const l=await (await fetch('/api/scan')).json();
   $('#wifi [name=ssid]').replaceChildren(...l.map(w=>new Option(w.ssid+'  ('+w.signal+'%, '+(w.security||'open')+')',w.ssid)));
-  msg(l.length+' networks found')}
-async function load(){const s=await (await fetch('/api/status')).json();
-  $('#status').replaceChildren(...s.devices.map(d=>{const p=document.createElement('div');p.className='row';
-    p.textContent=d.device+': '+d.state+' '+d.connection+' '+d.ip;return p}));
-  if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=s.ap_ssid;
-  const note=t=>{const p=document.createElement('div');p.className='note';p.textContent=t;return p};
-  $('#docker').replaceChildren(...(s.docker_error?[note(s.docker_error)]:s.containers.length?s.containers.map(crow):[note('No containers')]))}
-function crow(c){  // running = green, clean exit = grey, crash/restart loop/dead = red
-  const r=document.createElement('div');r.className='ctr';
-  const cls=c.state=='running'?'run':(c.state=='created'||/Exited \\(0\\)/.test(c.status))?'stop':'err';
-  r.innerHTML=`<b></b><span class="badge ${cls}"></span><div class="note"></div><div class="btns"></div>`;
-  r.querySelector('b').textContent=c.name;r.querySelector('.badge').textContent=cls=='err'?'error':c.state;
-  r.querySelector('.note').textContent=c.status;
+  toast(l.length+' networks found')}
+function kv(k,v,dot,muted){const r=el('div','kv'),b=el('b');if(dot!==undefined)b.append(el('i','dot '+dot));b.append(k);
+  r.append(b,el('span',muted?'':null,v));if(muted)r.lastChild.style.opacity=.6;return r}
+function tile(k,v,dot){const t=el('div','tile'),h=el('div','k');h.append(el('i','dot '+(dot||'')),k);t.append(h,el('div','v',v));return t}
+const ip=x=>(x&&x.ip||'').split(' | ')[0].split('/')[0];
+const ccls=c=>c.state=='running'?'g':(c.state=='created'||/Exited \\(0\\)/.test(c.status))?'n':'r';
+function tiles(){const dv=n=>(S.devices||[]).find(x=>x.device==n)||{},e=dv('eth0'),w=dv('wlan0'),cs=S.containers||[];
+  const run=cs.filter(c=>c.state=='running').length,bad=cs.filter(c=>ccls(c)=='r').length,hot=w.connection=='smarthub-ap';
+  const t=Y&&Y.hardware.find(h=>h.name=='CPU temperature'),iss=Y&&Y.hardware.filter(h=>h.ok===false).length;
+  $('#tiles').replaceChildren(
+    tile('Ethernet',ip(e)||(e.state?'no cable':'not found'),ip(e)?'g':'r'),
+    tile('WiFi',hot?'Hotspot':ip(w)||w.state||'off',hot?'a':ip(w)?'g':''),
+    tile('USB devices',String((S.usb||[]).length),(S.usb||[]).length?'g':''),
+    tile('Docker',S.docker_error?'not available':run+' of '+cs.length+' running',S.docker_error?'':bad?'r':'g'),
+    tile('CPU temperature',t?t.detail:'...',t?(t.ok?'g':'r'):''),
+    tile('Hardware',Y?(iss?iss+' issue'+(iss>1?'s':''):'All OK'):'...',Y?(iss?'r':'g'):''))}
+async function load(){try{S=await (await fetch('/api/status')).json()}catch(e){return}
+  $('#status').replaceChildren(...S.devices.map(d=>kv(d.device,d.state+(d.connection?' · '+d.connection:'')+(ip(d)?' · '+ip(d):''),
+    d.state=='connected'?'g':'r')));
+  $('#pill').textContent='Hotspot on · '+S.ap_ssid;
+  if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=S.ap_ssid;
+  $('#docker').replaceChildren(...(S.docker_error?[el('p','note',S.docker_error)]:S.containers.length?S.containers.map(crow):[el('p','note','No containers')]));
+  const p3=['USB 3.0 port 1','USB 3.0 port 2'],u=S.usb,us=d=>d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed;
+  const rows=[];for(const p of p3){const ds=u.filter(d=>d.port==p);rows.push(...(ds.length?ds.map(d=>kv(p,us(d),'g')):[kv(p,'empty','',1)]))}
+  const u2=u.filter(d=>!p3.includes(d.port));rows.push(...(u2.length?u2.map(d=>kv(d.port,us(d),'g')):[kv('USB 2.0 ports','empty','',1)]));
+  $('#usb').replaceChildren(...rows);tiles()}
+function crow(c){const r=el('div','ctr'),k=ccls(c),h=el('div');
+  h.append(el('b',null,c.name),el('span','badge '+k,k=='r'?'error':c.state));r.append(h,el('div','s',c.status));
   for(const a of c.state=='running'?['restart','stop']:['start','restart']){
-    const b=document.createElement('button');b.textContent=a[0].toUpperCase()+a.slice(1);
-    if(a=='stop')b.className='off';b.onclick=()=>dock(c.name,a);r.querySelector('.btns').append(b)}
+    const b=el('button','btn sm'+(a=='stop'?' red':' ghost'),a[0].toUpperCase()+a.slice(1));b.onclick=()=>dock(c.name,a);r.append(b)}
   return r}
-async function dock(name,action){
-  if(action=='stop'&&!confirm('Stop '+name+'?'))return;
-  msg(action+' '+name+'... please wait');await post('docker',{name,action})}
-load();setInterval(load,10000);
+async function dock(name,action){if(action=='stop'&&!confirm('Stop '+name+'?'))return;toast(action+' '+name+'... please wait');await post('docker',{name,action})}
+async function sysload(){$('#hw').textContent='Checking...';
+  try{Y=await (await fetch('/api/system')).json()}catch(e){return}
+  $('#hw').replaceChildren(...Y.hardware.map(h=>kv(h.name,h.detail,h.ok===true?'g':h.ok===false?'r':'',h.ok===null)));
+  $('#sys').replaceChildren(kv('OS',Y.os),kv('Kernel',Y.kernel),kv('OS image',Y.image||'unknown'),kv('Hostname',Y.hostname),
+    kv('Uptime',Y.uptime),kv('Packages installed',String(Y.packages??'unknown')));
+  $('#sw').replaceChildren(...Y.software.map(a=>kv(a.name,a.version||'not installed',a.version?'g':'',!a.version)));tiles()}
+load();sysload();setInterval(()=>{if(!document.hidden)load()},10000);  // no polling while the tab is in the background
 </script></body></html>"""
 
 
@@ -376,6 +579,23 @@ def selftest():
         except EOFError:
             pass
         assert len(calls) == want, (script, calls)
+    assert usb_port("3-1", "/sys/devices/platform/axi/1000120000.pcie/1f00300000.usb/xhci-hcd.1/usb3/3-1") == "USB 3.0 port 2"
+    assert usb_port("1-1.4", "/sys/devices/x/xhci-hcd.0/usb1/1-1/1-1.4") == "USB 3.0 port 1"  # behind an external hub
+    assert usb_port("5-1.3", "/sys/devices/platform/axi/1000480000.usb/usb5/5-1/5-1.3") == "USB 2.0 / mini PCIe (hub port 3)"
+    import tempfile
+    with tempfile.TemporaryDirectory() as root:  # fake /sys/bus/usb/devices
+        for name, attrs in {"usb5": {"idVendor": "1d6b"}, "5-1": {"idVendor": "1a86", "idProduct": "8091", "bDeviceClass": "09"},
+                            "5-1.3": {"idVendor": "0781", "idProduct": "5567", "product": "Cruzer", "manufacturer": "SanDisk",
+                                      "speed": "480", "bDeviceClass": "00"}, "5-1.3:1.0": {}}.items():
+            if ":" in name and os.name == "nt":
+                continue  # Windows file names can't contain ':' (interface entries only exist on Linux anyway)
+            os.mkdir(os.path.join(root, name))
+            for k, v in attrs.items():
+                with open(os.path.join(root, name, k), "w") as f:
+                    f.write(v + "\n")
+        assert usb_devices(root) == [{"port": "USB 2.0 / mini PCIe (hub port 3)", "name": "Cruzer", "maker": "SanDisk",
+                                      "id": "0781:5567", "speed": "480 Mb/s"}], usb_devices(root)
+        assert usb_has("1a86:8091", root) and not usb_has("dead:beef", root)
     for bad in ({"action": "rm", "name": "x"}, {"action": "exec"}):  # only start/stop/restart reach docker
         try:
             set_docker(bad)
@@ -389,10 +609,9 @@ def main():
     global buzzer
     from gpiozero import LED, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
-    threading.Thread(target=led_loop, args=(LED(20),), daemon=True).start()  # LED0 flashes while AP on
     threading.Thread(target=button_loop, args=(toggle,), daemon=True).start()  # USER button pulls GPIO4 to GND
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    ap_watch(LED(20))  # LED0 flashes + dashboard port open only while the AP is on
 
 
 if __name__ == "__main__":
