@@ -10,13 +10,13 @@ The web server only exists while the AP is on: AP off = port closed, free for ot
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
 Needs Raspberry Pi OS Bookworm+ (NetworkManager/nmcli, gpiozero preinstalled).
 """
-import glob, ipaddress, json, os, re, subprocess, sys, threading, time
+import glob, ipaddress, json, os, pathlib, re, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
 PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/docker runs on the box
 LOGO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.webp")
-LOGO = open(LOGO_FILE, "rb").read() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
+LOGO = pathlib.Path(LOGO_FILE).read_bytes() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
 server = None    # dashboard web server; only running while the AP is up
 scan_cache = []  # wlan0 can't scan while it is the AP, so we scan just before starting it
@@ -397,94 +397,144 @@ class Handler(BaseHTTPRequestHandler):
             self.send(400, {"error": str(e)})
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartHub Network</title>
+PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>SmartHub Dashboard</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:16px;background:#f2f4f7;color:#1d2330}
-h1{font-size:1.3em;margin:4px 0}header{display:flex;align-items:center;gap:12px}header img{flex:none}section{background:#fff;border-radius:10px;padding:14px;margin:12px 0;box-shadow:0 1px 3px #0002}
-h2{font-size:1.05em;margin:0 0 8px}label{display:block;margin:10px 0 3px;font-size:.9em;color:#555}
-input,select,button{width:100%;padding:10px;font-size:1em;box-sizing:border-box;border:1px solid #c5cad3;border-radius:6px}
-button{background:#0a84c6;color:#fff;border:0;margin-top:12px;cursor:pointer}button.off{background:#c0392b}
-.static{display:none}.row{font-family:monospace;font-size:.9em;margin:3px 0}.note{font-size:.8em;color:#777}
-.ctr{padding:8px 0;border-bottom:1px solid #eee}.ctr:last-child{border:0}
-.badge{font-size:.75em;padding:2px 8px;border-radius:10px;color:#fff;margin-left:6px;text-transform:uppercase}
-.badge.run{background:#2e9e5b}.badge.stop{background:#8a919c}.badge.err{background:#c0392b}
-.btns button{width:auto;padding:6px 14px;margin:6px 6px 0 0}
-.kv{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:.92em}.kv:last-child{border:0}
-.kv b{flex:0 0 42%;font-weight:600}.kv span{flex:1;color:#444;word-break:break-word}.muted{color:#9aa1ab!important}
-#msg{position:sticky;top:0;padding:10px;border-radius:6px;display:none}#msg.ok{display:block;background:#d8f3dc}#msg.err{display:block;background:#fde2e1}
+:root{--bg:#eef2f6;--card:#fff;--ink:#16202c;--mute:#6b7684;--line:#e2e7ed;--blue:#0a84c6;--blue2:#e4f2fb;--green:#1f9d55;--green2:#e2f5e9;--red:#d03a2f;--red2:#fde6e4;--amber:#c27c0e;--amber2:#fff3d9}
+@media(prefers-color-scheme:dark){:root{--bg:#0f141a;--card:#18202a;--ink:#e6edf3;--mute:#8d99a8;--line:#273241;--blue:#2ea0e0;--blue2:#11314a;--green:#3cc47a;--green2:#12331f;--red:#f0685d;--red2:#3a1816;--amber:#e3a43a;--amber2:#3a2b0e}}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
+.top{max-width:760px;margin:0 auto;padding:10px 16px 6px;display:flex;align-items:center;gap:12px}
+.top img{height:36px;width:72px}
+.top h1{font-size:16px;margin:0;flex:1;line-height:1.2}.top h1 small{display:block;font-weight:400;color:var(--mute);font-size:12px}
+.pill{font-size:12px;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--amber2);color:var(--amber);white-space:nowrap}
+nav{max-width:760px;margin:0 auto;padding:4px 16px 10px;display:flex;gap:6px}
+nav button{flex:1;padding:8px 4px;border:0;border-radius:8px;background:transparent;color:var(--mute);font:inherit;font-weight:600;cursor:pointer}
+nav button.on{background:var(--blue2);color:var(--blue)}
+main{max-width:760px;margin:0 auto;padding:14px 16px 28px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}
+.tile .k{font-size:12px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.tile .v{font-size:16px;font-weight:700;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line);display:inline-block;flex:none}
+.dot.g{background:var(--green)}.dot.r{background:var(--red)}.dot.a{background:var(--amber)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+label{display:block;margin:10px 0 4px;font-size:13px;color:var(--mute)}
+input,select{width:100%;padding:10px;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.btn{width:100%;margin-top:12px;padding:11px;border:0;border-radius:8px;background:var(--blue);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.btn.red{background:var(--red)}.btn.ghost{background:var(--blue2);color:var(--blue)}
+.btn.sm{width:auto;padding:6px 12px;margin:8px 6px 0 0;font-size:13px}
+.seg{display:flex;background:var(--bg);border-radius:8px;padding:3px}
+.seg button{flex:1;border:0;background:transparent;padding:8px;border-radius:6px;font:inherit;color:var(--mute);cursor:pointer}
+.seg button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px #0003}
+.kv{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}.kv:last-child{border:0}
+.kv b{flex:0 0 44%;font-weight:600;display:flex;gap:7px;align-items:center}.kv span{flex:1;color:var(--mute);word-break:break-word}
+.badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;text-transform:uppercase;margin-left:6px}
+.badge.g{background:var(--green2);color:var(--green)}.badge.r{background:var(--red2);color:var(--red)}.badge.n{background:var(--bg);color:var(--mute)}
+.ctr{padding:10px 0;border-bottom:1px solid var(--line)}.ctr:last-child{border:0}.ctr .s{font-size:13px;color:var(--mute)}
+.note{font-size:12.5px;color:var(--mute);margin:10px 0 0}
+#toast{position:fixed;left:50%;bottom:18px;transform:translate(-50%,30px);opacity:0;transition:.25s;background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;max-width:90%;z-index:3}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.err{background:var(--red);color:#fff}
+footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
+[hidden]{display:none!important}
 </style></head><body>
-<header><img src="/logo.webp" alt="Cytron Technologies" width="140" height="70"><h1>SmartHub CM5 Network</h1></header><div id="msg"></div>
-<section><h2>Status</h2><div id="status">Loading...</div></section>
-<section><h2>Docker</h2><div id="docker">Loading...</div></section>
-<section id="eth"><h2>Ethernet (eth0)</h2><div class="ipf"></div><button onclick="send('eth')">Apply</button></section>
-<section id="wifi"><h2>WiFi</h2><button onclick="scan()">Search WiFi</button>
-<label>Network</label><select name="ssid"><option value="">- press Search -</option></select>
-<label>Password (blank for open network)</label><input name="password" type="password">
-<div class="ipf"></div><button onclick="send('wifi')">Connect</button>
-<p class="note">Connecting turns the AP off (single radio). If it fails, the AP comes back.</p></section>
-<section id="ap"><h2>Access Point</h2><label>Name (SSID)</label><input name="ssid">
-<label>Password (8-63 chars)</label><input name="password" type="password">
-<button onclick="send('ap')">Save</button><button class="off" onclick="post('ap/off',{})">Turn off AP</button>
-<p class="note">Turning off the AP also closes this dashboard and frees its port for other software.</p></section>
-<section><h2>USB ports</h2><div id="usb">Loading...</div></section>
-<section><h2>Hardware check</h2><div id="hw">Loading...</div><button onclick="sysload()">Check again</button></section>
-<section><h2>System</h2><div id="sys">Loading...</div><h2 style="margin-top:14px">Software</h2><div id="sw"></div></section>
-<footer class="note" style="text-align:center">SmartHub Network Dashboard V2.0-beta</footer>
+<header><div class="top"><img src="/logo.webp" alt="Cytron Technologies"><h1>SmartHub CM5<small>Network dashboard</small></h1><span class="pill" id="pill">Hotspot on</span></div>
+<nav><button class="on" data-go="net">Network</button><button data-go="dev">Devices</button><button data-go="sys">System</button></nav></header>
+<main>
+<div class="tiles" id="tiles"></div>
+
+<div data-tab="net">
+<section class="card"><h2>Connections</h2><div id="status">Loading...</div></section>
+<section class="card" id="eth"><h2>Ethernet (eth0)</h2><div class="ipf"></div><button class="btn" onclick="send('eth')">Apply</button>
+<p class="note">Changing Ethernet can change the SmartHub's IP address on your wired network.</p></section>
+<section class="card" id="wifi"><h2>Connect to WiFi</h2><button class="btn ghost" onclick="scan()">Search WiFi</button>
+<label>Network</label><select name="ssid"><option value="">Press Search WiFi first</option></select>
+<label>Password (blank for open network)</label><input name="password" type="password" autocomplete="off">
+<div class="ipf"></div><button class="btn" onclick="send('wifi')">Connect</button>
+<p class="note">Connecting turns the hotspot off (one WiFi radio). If it fails, the hotspot comes back.</p></section>
+<section class="card" id="ap"><h2>Hotspot</h2><label>Name (SSID)</label><input name="ssid">
+<label>Password (8-63 characters)</label><input name="password" type="password" autocomplete="new-password">
+<button class="btn" onclick="send('ap')">Save</button><button class="btn red" onclick="if(confirm('Turn off the hotspot? This page will close.'))post('ap/off',{})">Turn off hotspot</button>
+<p class="note">Turning the hotspot off also closes this dashboard and frees its port for other software.</p></section>
+</div>
+
+<div data-tab="dev" hidden>
+<section class="card"><h2>USB ports</h2><div id="usb">Loading...</div></section>
+<section class="card"><h2>Docker</h2><div id="docker">Loading...</div></section>
+</div>
+
+<div data-tab="sys" hidden>
+<section class="card"><h2>Hardware check <button class="btn ghost sm" style="margin:0" onclick="sysload()">Check again</button></h2><div id="hw">Loading...</div></section>
+<section class="card"><h2>System</h2><div id="sys">Loading...</div></section>
+<section class="card"><h2>Software</h2><div id="sw">Loading...</div></section>
+</div>
+</main>
+<footer>SmartHub Network Dashboard V2.0-beta</footer>
+<div id="toast" role="status"></div>
 <script>
-const $=s=>document.querySelector(s);
-document.querySelectorAll('.ipf').forEach(e=>e.innerHTML=`<label>IP mode</label>
-<select name="mode" onchange="this.parentNode.querySelector('.static').style.display=this.value=='static'?'block':'none'">
-<option value="dhcp">Dynamic (DHCP)</option><option value="static">Static</option></select>
-<div class="static"><label>IP address / prefix</label><input name="ip" placeholder="192.168.1.50/24">
-<label>Gateway</label><input name="gateway" placeholder="192.168.1.1">
-<label>DNS</label><input name="dns" placeholder="8.8.8.8, 1.1.1.1"></div>`);
-function msg(t,err){const m=$('#msg');m.textContent=t;m.className=err?'err':'ok'}
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+let S={},Y=null,tt;
+$$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x==b));
+  $$('[data-tab]').forEach(t=>t.hidden=t.dataset.tab!=b.dataset.go);history.replaceState(null,'','#'+b.dataset.go)});
+($$('nav button').find(b=>'#'+b.dataset.go==location.hash)||{click(){}}).click();  // keep tab on refresh
+$$('.ipf').forEach(e=>{e.innerHTML=`<label>IP address</label><div class="seg"><button type="button" class="on" data-m="dhcp">Dynamic (DHCP)</button>
+<button type="button" data-m="static">Static</button></div><input type="hidden" name="mode" value="dhcp">
+<div class="static" hidden><label>IP address / prefix</label><input name="ip" placeholder="192.168.1.50/24">
+<label>Gateway</label><input name="gateway" placeholder="192.168.1.1"><label>DNS</label><input name="dns" placeholder="8.8.8.8, 1.1.1.1"></div>`;
+  e.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{e.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x==b));
+    e.querySelector('[name=mode]').value=b.dataset.m;e.querySelector('.static').hidden=b.dataset.m!='static'})});
+function toast(t,err){const m=$('#toast');m.textContent=t;m.className='show'+(err?' err':'');clearTimeout(tt);tt=setTimeout(()=>m.className='',4000)}
 async function post(path,data){
   try{const r=await fetch('/api/'+path,{method:'POST',body:JSON.stringify(data)});const j=await r.json();
-    if(r.ok){msg('Applied');setTimeout(load,2000)}else msg(j.error,1)}
-  catch(e){msg('Connection lost - SmartHub is switching network',1)}}
-function send(id){const d={};document.querySelectorAll('#'+id+' [name]').forEach(e=>d[e.name]=e.value);post(id,d)}
-async function scan(){msg('Searching...');
+    if(r.ok){toast('Applied');setTimeout(load,2000)}else toast(j.error,1)}
+  catch(e){toast('Connection lost - SmartHub is switching network',1)}}
+function send(id){const d={};$$('#'+id+' [name]').forEach(e=>d[e.name]=e.value);post(id,d)}
+async function scan(){toast('Searching...');
   const l=await (await fetch('/api/scan')).json();
   $('#wifi [name=ssid]').replaceChildren(...l.map(w=>new Option(w.ssid+'  ('+w.signal+'%, '+(w.security||'open')+')',w.ssid)));
-  msg(l.length+' networks found')}
-async function load(){const s=await (await fetch('/api/status')).json();
-  $('#status').replaceChildren(...s.devices.map(d=>{const p=document.createElement('div');p.className='row';
-    p.textContent=d.device+': '+d.state+' '+d.connection+' '+d.ip;return p}));
-  if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=s.ap_ssid;
-  const note=t=>{const p=document.createElement('div');p.className='note';p.textContent=t;return p};
-  $('#docker').replaceChildren(...(s.docker_error?[note(s.docker_error)]:s.containers.length?s.containers.map(crow):[note('No containers')]));
-  const p3=['USB 3.0 port 1','USB 3.0 port 2'],rows=[];  // blue ports always listed; empty ones say so
-  for(const p of p3){const ds=s.usb.filter(d=>d.port==p);
-    rows.push(...(ds.length?ds.map(d=>kv('🔌 '+p,usbtxt(d))):[kv('⚪ '+p,'empty',1)]))}
-  const u2=s.usb.filter(d=>!p3.includes(d.port));
-  rows.push(...(u2.length?u2.map(d=>kv('🔌 '+d.port,usbtxt(d))):[kv('⚪ USB 2.0 ports','empty',1)]));
-  $('#usb').replaceChildren(...rows)}
-function usbtxt(d){return d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed+' · '+d.id}
-function kv(k,v,muted){const r=document.createElement('div');r.className='kv';
-  r.innerHTML='<b></b><span></span>';r.querySelector('b').textContent=k;const s=r.querySelector('span');
-  s.textContent=v;if(muted)s.className='muted';return r}
-async function sysload(){$('#hw').textContent='Checking...';
-  const s=await (await fetch('/api/system')).json();
-  $('#hw').replaceChildren(...s.hardware.map(h=>kv((h.ok===true?'✅ ':h.ok===false?'❌ ':'⚪ ')+h.name,h.detail,h.ok===null)));
-  $('#sys').replaceChildren(kv('OS',s.os),kv('Kernel',s.kernel),kv('OS image',s.image||'unknown'),
-    kv('Hostname',s.hostname),kv('Uptime',s.uptime),kv('Packages installed',s.packages??'unknown'));
-  $('#sw').replaceChildren(...s.software.map(a=>kv(a.name,a.version||'not installed',!a.version)))}
-function crow(c){  // running = green, clean exit = grey, crash/restart loop/dead = red
-  const r=document.createElement('div');r.className='ctr';
-  const cls=c.state=='running'?'run':(c.state=='created'||/Exited \\(0\\)/.test(c.status))?'stop':'err';
-  r.innerHTML=`<b></b><span class="badge ${cls}"></span><div class="note"></div><div class="btns"></div>`;
-  r.querySelector('b').textContent=c.name;r.querySelector('.badge').textContent=cls=='err'?'error':c.state;
-  r.querySelector('.note').textContent=c.status;
+  toast(l.length+' networks found')}
+function kv(k,v,dot,muted){const r=el('div','kv'),b=el('b');if(dot!==undefined)b.append(el('i','dot '+dot));b.append(k);
+  r.append(b,el('span',muted?'':null,v));if(muted)r.lastChild.style.opacity=.6;return r}
+function tile(k,v,dot){const t=el('div','tile'),h=el('div','k');h.append(el('i','dot '+(dot||'')),k);t.append(h,el('div','v',v));return t}
+const ip=x=>(x&&x.ip||'').split(' | ')[0].split('/')[0];
+const ccls=c=>c.state=='running'?'g':(c.state=='created'||/Exited \\(0\\)/.test(c.status))?'n':'r';
+function tiles(){const dv=n=>(S.devices||[]).find(x=>x.device==n)||{},e=dv('eth0'),w=dv('wlan0'),cs=S.containers||[];
+  const run=cs.filter(c=>c.state=='running').length,bad=cs.filter(c=>ccls(c)=='r').length,hot=w.connection=='smarthub-ap';
+  const t=Y&&Y.hardware.find(h=>h.name=='CPU temperature'),iss=Y&&Y.hardware.filter(h=>h.ok===false).length;
+  $('#tiles').replaceChildren(
+    tile('Ethernet',ip(e)||(e.state?'no cable':'not found'),ip(e)?'g':'r'),
+    tile('WiFi',hot?'Hotspot':ip(w)||w.state||'off',hot?'a':ip(w)?'g':''),
+    tile('USB devices',String((S.usb||[]).length),(S.usb||[]).length?'g':''),
+    tile('Docker',S.docker_error?'not available':run+' of '+cs.length+' running',S.docker_error?'':bad?'r':'g'),
+    tile('CPU temperature',t?t.detail:'...',t?(t.ok?'g':'r'):''),
+    tile('Hardware',Y?(iss?iss+' issue'+(iss>1?'s':''):'All OK'):'...',Y?(iss?'r':'g'):''))}
+async function load(){try{S=await (await fetch('/api/status')).json()}catch(e){return}
+  $('#status').replaceChildren(...S.devices.map(d=>kv(d.device,d.state+(d.connection?' · '+d.connection:'')+(ip(d)?' · '+ip(d):''),
+    d.state=='connected'?'g':'r')));
+  $('#pill').textContent='Hotspot on · '+S.ap_ssid;
+  if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=S.ap_ssid;
+  $('#docker').replaceChildren(...(S.docker_error?[el('p','note',S.docker_error)]:S.containers.length?S.containers.map(crow):[el('p','note','No containers')]));
+  const p3=['USB 3.0 port 1','USB 3.0 port 2'],u=S.usb,us=d=>d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed;
+  const rows=[];for(const p of p3){const ds=u.filter(d=>d.port==p);rows.push(...(ds.length?ds.map(d=>kv(p,us(d),'g')):[kv(p,'empty','',1)]))}
+  const u2=u.filter(d=>!p3.includes(d.port));rows.push(...(u2.length?u2.map(d=>kv(d.port,us(d),'g')):[kv('USB 2.0 ports','empty','',1)]));
+  $('#usb').replaceChildren(...rows);tiles()}
+function crow(c){const r=el('div','ctr'),k=ccls(c),h=el('div');
+  h.append(el('b',null,c.name),el('span','badge '+k,k=='r'?'error':c.state));r.append(h,el('div','s',c.status));
   for(const a of c.state=='running'?['restart','stop']:['start','restart']){
-    const b=document.createElement('button');b.textContent=a[0].toUpperCase()+a.slice(1);
-    if(a=='stop')b.className='off';b.onclick=()=>dock(c.name,a);r.querySelector('.btns').append(b)}
+    const b=el('button','btn sm'+(a=='stop'?' red':' ghost'),a[0].toUpperCase()+a.slice(1));b.onclick=()=>dock(c.name,a);r.append(b)}
   return r}
-async function dock(name,action){
-  if(action=='stop'&&!confirm('Stop '+name+'?'))return;
-  msg(action+' '+name+'... please wait');await post('docker',{name,action})}
-load();setInterval(load,10000);sysload();
+async function dock(name,action){if(action=='stop'&&!confirm('Stop '+name+'?'))return;toast(action+' '+name+'... please wait');await post('docker',{name,action})}
+async function sysload(){$('#hw').textContent='Checking...';
+  try{Y=await (await fetch('/api/system')).json()}catch(e){return}
+  $('#hw').replaceChildren(...Y.hardware.map(h=>kv(h.name,h.detail,h.ok===true?'g':h.ok===false?'r':'',h.ok===null)));
+  $('#sys').replaceChildren(kv('OS',Y.os),kv('Kernel',Y.kernel),kv('OS image',Y.image||'unknown'),kv('Hostname',Y.hostname),
+    kv('Uptime',Y.uptime),kv('Packages installed',String(Y.packages??'unknown')));
+  $('#sw').replaceChildren(...Y.software.map(a=>kv(a.name,a.version||'not installed',a.version?'g':'',!a.version)));tiles()}
+load();sysload();setInterval(()=>{if(!document.hidden)load()},10000);  // no polling while the tab is in the background
 </script></body></html>"""
 
 
