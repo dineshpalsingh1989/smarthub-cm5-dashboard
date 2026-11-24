@@ -72,8 +72,12 @@ main() {  # wrapped so a half-downloaded script never runs
 
   echo "== 3/3 Installing =="
   systemctl stop smarthub-ap 2>/dev/null || true  # so our own old copy doesn't count as "port 80 busy"
-  local port=80
-  [ -n "$(ss -Hltn 'sport = :80')" ] && { port=8080; info "Port 80 is used by another app (e.g. Beaver-IoT) - using 8080"; }
+  local port
+  for port in 80 8080 8081 8088 8888; do  # first free one
+    [ -z "$(ss -Hltn "sport = :$port")" ] && break
+  done
+  [ -z "$(ss -Hltn "sport = :$port")" ] || echo "  [WARN] Ports 80, 8080, 8081, 8088 and 8888 are all in use - dashboard may not open"
+  [ "$port" = 80 ] || info "Port 80 is used by another app (e.g. Beaver-IoT) - using $port"
   mkdir -p "$DIR"
   install -m 644 "$tmp/smarthub_ap.py" "$tmp/logo.webp" "$DIR/"
   cat >/etc/systemd/system/smarthub-ap.service <<EOF
@@ -90,6 +94,17 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 EOF
+  # hotspot devices may open the dashboard, but never log in to the SmartHub's terminal
+  local sshconf=/etc/ssh/sshd_config.d/smarthub-ap.conf
+  if [ -d /etc/ssh/sshd_config.d ]; then
+    printf '# smarthub-ap: no SSH from hotspot devices\nDenyUsers *@192.168.4.0/24\n' >"$sshconf"  # sshd has no end-of-line comments
+    if sshd -t 2>/dev/null; then
+      systemctl reload ssh 2>/dev/null || true
+      ok "SSH (terminal) blocked for hotspot devices"
+    else
+      rm -f "$sshconf"; info "Could not block SSH for hotspot devices (sshd config test failed)"
+    fi
+  fi
   systemctl daemon-reload
   systemctl enable -q smarthub-ap
   systemctl restart smarthub-ap

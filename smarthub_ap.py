@@ -20,7 +20,9 @@ PORT = int(os.environ.get("SMARTHUB_PORT", 80))  # 80 is taken if Beaver-IoT/doc
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOGO_FILE = os.path.join(HERE, "logo.webp")
 SETTINGS_FILE = os.path.join(HERE, "settings.json")  # installer only replaces the .py/.webp, so this survives updates
-DEFAULTS = {"auto_off": 15, "reset_button": True}  # auto_off: minutes with no one on the hotspot, 0 = never
+DEFAULTS = {"auto_off": 15, "reset_button": True, "share_internet": False}  # auto_off: minutes, 0 = never
+# NetworkManager's hotspot DHCP server (dnsmasq) reads this dir; "dhcp-option=3" = give devices no gateway
+NO_INTERNET_FILE = "/etc/NetworkManager/dnsmasq-shared.d/smarthub-no-internet.conf"
 AUTO_OFF_CHOICES = (0, 5, 10, 15, 30, 60)
 LOGO = pathlib.Path(LOGO_FILE).read_bytes() if os.path.exists(LOGO_FILE) else b""  # served locally: AP has no internet
 buzzer = None
@@ -47,13 +49,28 @@ settings = load_settings()
 
 
 def set_options(d):
-    m, rb = d.get("auto_off"), d.get("reset_button")
-    if type(m) is not int or m not in AUTO_OFF_CHOICES or not isinstance(rb, bool):
+    m, rb, si = d.get("auto_off"), d.get("reset_button"), d.get("share_internet")
+    if type(m) is not int or m not in AUTO_OFF_CHOICES or not isinstance(rb, bool) or not isinstance(si, bool):
         raise ValueError("Bad options")
-    settings.update(auto_off=m, reset_button=rb)
+    changed = si != settings["share_internet"]
+    settings.update(auto_off=m, reset_button=rb, share_internet=si)
     with open(SETTINGS_FILE + ".tmp", "w") as f:
         json.dump(settings, f)
     os.replace(SETTINGS_FILE + ".tmp", SETTINGS_FILE)  # atomic: power loss never leaves a half-written file
+    apply_internet()
+    if changed and ap_active():  # dnsmasq only re-reads its config when the hotspot restarts
+        threading.Timer(1, nm, ("con", "up", AP)).start()
+
+
+def apply_internet():
+    # shortcut: soft block - a device that sets its own gateway by hand still gets out; nft rule if that matters
+    if settings["share_internet"]:
+        if os.path.exists(NO_INTERNET_FILE):
+            os.remove(NO_INTERNET_FILE)
+    else:
+        os.makedirs(os.path.dirname(NO_INTERNET_FILE), exist_ok=True)
+        with open(NO_INTERNET_FILE, "w") as f:
+            f.write("# smarthub-ap: hotspot devices get no gateway = no internet through the SmartHub\ndhcp-option=3\n")
 
 
 def nm(*args, check=True):
@@ -240,9 +257,11 @@ def ipv4_args(d):
     return args
 
 
-def replace_profile(name, args):
+def replace_profile(name, args):  # add the new profile first: if nmcli refuses it, the old one is still there
+    nm("con", "delete", name + "-new", check=False)  # leftover from an interrupted change
+    nm("con", "add", "con-name", name + "-new", *args)
     nm("con", "delete", name, check=False)
-    nm("con", "add", "con-name", name, *args)
+    nm("con", "modify", name + "-new", "connection.id", name)
 
 
 def set_eth(d):
@@ -424,7 +443,30 @@ ROUTES = {"/api/eth": set_eth, "/api/wifi": set_wifi, "/api/ap": set_ap, "/api/d
           "/api/ap/off": lambda d: threading.Timer(1, ap_off).start()}
 
 
+MAX_BODY = 4096  # real requests are ~100 bytes
+
+
+def request_problem(h, post):  # h: request headers. Blocks other websites and DNS rebinding from using the dashboard
+    host = h.get("Host") or ""
+    if host.split(":")[0] != "192.168.4.1":
+        return 403, "Open the dashboard at http://192.168.4.1"
+    if not post:
+        return None
+    if h.get("Origin") not in (None, "http://" + host):
+        return 403, "Request from another website blocked"
+    if (h.get("Content-Type") or "").split(";")[0].strip() != "application/json":
+        return 415, "JSON only"  # browsers can't send this cross-site without asking first, and we never say yes
+    try:
+        n = int(h.get("Content-Length") or 0)
+    except ValueError:
+        n = -1
+    if not 0 <= n <= MAX_BODY:
+        return 413, "Request too large"
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
+    timeout = 10  # hang up on clients that go silent, so stalled connections can't pile up
     def send(self, code, body, ctype="application/json"):
         b = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode()
         self.send_response(code)
@@ -433,10 +475,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
-    def allowed(self):  # only devices on the SmartHub AP (server binds 192.168.4.1 only; kept as a 2nd guard)
-        if self.client_address[0].startswith("192.168.4."):
-            return True
-        self.send(403, {"error": "Connect to the SmartHub AP"})
+    def allowed(self, post=False):  # only devices on the SmartHub AP (server binds 192.168.4.1 only; 2nd guard)
+        if not self.client_address[0].startswith("192.168.4."):
+            return self.send(403, {"error": "Connect to the SmartHub AP"})
+        bad = request_problem(self.headers, post)
+        if bad:
+            return self.send(bad[0], {"error": bad[1]})
+        return True
 
     def do_GET(self):
         if not self.allowed():
@@ -455,7 +500,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(404, {"error": "not found"})
 
     def do_POST(self):
-        if not self.allowed():
+        if not self.allowed(post=True):
             return
         fn = ROUTES.get(self.path)
         if not fn:
@@ -536,8 +581,9 @@ footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
 <option value="0">Never</option><option value="5">After 5 min with no one connected</option><option value="10">After 10 min with no one connected</option>
 <option value="15">After 15 min with no one connected</option><option value="30">After 30 min with no one connected</option><option value="60">After 60 min with no one connected</option></select>
 <label class="chk"><input type="checkbox" id="resetbtn"><span>Network reset button<br><small style="color:var(--mute)">Hold USER for 15 s: Ethernet and WiFi go back to DHCP, hotspot back to smarthub / smarthub1 and on (3 beeps)</small></span></label>
-<button class="btn" onclick="post('options',{auto_off:+$('#autooff').value,reset_button:$('#resetbtn').checked})">Save options</button>
-<p class="note">Auto-off frees the dashboard port even if someone forgets to turn the hotspot off.</p></section>
+<label class="chk"><input type="checkbox" id="netshare"><span>Share internet with hotspot devices<br><small style="color:var(--mute)">Off: phones on the hotspot can open this dashboard but get no internet through the SmartHub. Changing it restarts the hotspot: rejoin it.</small></span></label>
+<button class="btn" onclick="post('options',{auto_off:+$('#autooff').value,reset_button:$('#resetbtn').checked,share_internet:$('#netshare').checked})">Save options</button>
+<p class="note">Auto-off frees the dashboard port even if someone forgets to turn the hotspot off. Hotspot devices can never log in to the SmartHub's terminal (SSH is blocked for them).</p></section>
 </div>
 
 <div data-tab="dev" hidden>
@@ -568,7 +614,7 @@ $$('.ipf').forEach(e=>{e.innerHTML=`<label>IP address</label><div class="seg"><b
     e.querySelector('[name=mode]').value=b.dataset.m;e.querySelector('.static').hidden=b.dataset.m!='static'})});
 function toast(t,err){const m=$('#toast');m.textContent=t;m.className='show'+(err?' err':'');clearTimeout(tt);tt=setTimeout(()=>m.className='',4000)}
 async function post(path,data){
-  try{const r=await fetch('/api/'+path,{method:'POST',body:JSON.stringify(data)});const j=await r.json();
+  try{const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json();
     if(r.ok){toast('Applied');setTimeout(load,2000)}else toast(j.error,1)}
   catch(e){toast('Connection lost - SmartHub is switching network',1)}}
 function send(id){const d={};$$('#'+id+' [name]').forEach(e=>d[e.name]=e.value);post(id,d)}
@@ -596,7 +642,7 @@ async function load(){try{S=await (await fetch('/api/status')).json()}catch(e){r
     d.state=='connected'?'g':'r')));
   $('#pill').textContent='Hotspot on · '+S.ap_ssid;
   if(!$('#ap [name=ssid]').value)$('#ap [name=ssid]').value=S.ap_ssid;
-  if(S.options&&!optset){optset=1;$('#autooff').value=S.options.auto_off;$('#resetbtn').checked=S.options.reset_button}
+  if(S.options&&!optset){optset=1;$('#autooff').value=S.options.auto_off;$('#resetbtn').checked=S.options.reset_button;$('#netshare').checked=S.options.share_internet}
   $('#docker').replaceChildren(...(S.docker_error?[el('p','note',S.docker_error)]:S.containers.length?S.containers.map(crow):[el('p','note','No containers')]));
   const p3=['USB 3.0 port 1','USB 3.0 port 2'],u=S.usb,us=d=>d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed;
   const rows=[];for(const p of p3){const ds=u.filter(d=>d.port==p);rows.push(...(ds.length?ds.map(d=>kv(p,us(d),'g')):[kv(p,'empty','',1)]))}
@@ -674,8 +720,10 @@ def selftest():
     assert idle_tick(100, 1, 2000, 15) == (None, False)         # someone joined: clock resets
     assert idle_tick(100, None, 2000, 15) == (None, False)      # iw missing: never turn off blindly
     assert idle_tick(100, 0, 2000, 0) == (None, False)          # auto-off disabled
-    for bad in ({"auto_off": 7, "reset_button": True}, {"auto_off": 15, "reset_button": "yes"},
-                {"auto_off": True, "reset_button": True}, {}):
+    for bad in ({"auto_off": 7, "reset_button": True, "share_internet": False},
+                {"auto_off": 15, "reset_button": "yes", "share_internet": False},
+                {"auto_off": True, "reset_button": True, "share_internet": False},
+                {"auto_off": 15, "reset_button": True}, {}):
         try:
             set_options(bad)
             raise AssertionError(bad)
@@ -704,6 +752,14 @@ def selftest():
             raise AssertionError(bad)
         except ValueError:
             pass
+    ok = {"Host": "192.168.4.1:8080", "Origin": "http://192.168.4.1:8080", "Content-Type": "application/json",
+          "Content-Length": "60"}
+    assert request_problem(ok, True) is None and request_problem({"Host": "192.168.4.1"}, False) is None
+    for change, code in (({"Host": "evil.example:8080"}, 403),           # DNS rebinding
+                         ({"Origin": "http://evil.example"}, 403),      # other website (CSRF)
+                         ({"Content-Type": "text/plain"}, 415),         # cross-site "simple" request
+                         ({"Content-Length": "99999999"}, 413), ({"Content-Length": "x"}, 413)):
+        assert request_problem({**ok, **change}, True)[0] == code, change
     print("selftest ok")
 
 
@@ -711,6 +767,10 @@ def main():
     global buzzer
     from gpiozero import LED, Buzzer
     buzzer = Buzzer(19)                    # active buzzer, beeps when high
+    try:
+        apply_internet()  # match the saved internet-sharing option (fresh install: no internet for hotspot devices)
+    except OSError as e:
+        print("Could not apply internet sharing option:", e, flush=True)
     threading.Thread(target=button_loop, args=(toggle,), kwargs={"on_long": net_reset},  # USER pulls GPIO4 to GND
                      daemon=True).start()
     print("SmartHub AP dashboard running - hold USER button 5 s to toggle AP", flush=True)

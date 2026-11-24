@@ -62,6 +62,7 @@ Find them in the **Network** tab, card **Safety options**. They are saved on the
 |---|---|---|
 | **Turn the hotspot off automatically** | After 15 min with no one connected | When no phone or laptop has been on the hotspot for that long, the SmartHub turns it off by itself (2 short beeps, LED0 off) and the dashboard port is freed. Choose 5, 10, 15, 30 or 60 min, or *Never*. |
 | **Network reset button** | On | Keep holding **USER for 15 seconds** (past the 5 s beep) to rescue a SmartHub you can't reach: Ethernet and WiFi go back to **DHCP**, and the hotspot goes back to **`smarthub` / `smarthub1`** and turns on. You hear **3 beeps**. Saved WiFi networks are kept. Untick it if nobody should be able to reset the network from the button. |
+| **Share internet with hotspot devices** | Off | Off: phones on the hotspot can open the dashboard but get no internet through the SmartHub. Turn it on only if hotspot devices need internet. Changing it restarts the hotspot, so rejoin it. |
 
 How the button works now:
 
@@ -70,7 +71,15 @@ How the button works now:
 | 5 s, then let go | 1 long beep / 2 short beeps | Hotspot on / off (same as before) |
 | 15 s | the 5 s beep, then **3 beeps** | Network reset (if switched on) |
 
-### 5 · Still very light
+### 5 · Locked down for safety
+
+- **No terminal for hotspot devices.** The installer blocks SSH logins from the hotspot (`192.168.4.x`). Hotspot devices can only use the dashboard. SSH from your normal network keeps working.
+- **Other websites can't use the dashboard.** A web page open on the phone, even one loaded over mobile data, can't send settings to the SmartHub. The dashboard only accepts its own page (checks the address, `Origin` and JSON-only requests).
+- **No stuck connections.** Requests are limited to 4 KB, and a device that goes silent for 10 seconds is disconnected.
+- **Safer network changes.** A new Ethernet/WiFi profile is saved before the old one is removed, so if NetworkManager rejects it, your old settings stay.
+- The dashboard has no terminal or command box. Docker buttons only start, stop or restart existing containers.
+
+### 6 · Still very light
 
 - The whole page is **12.4 KB**: no frameworks, no web fonts, nothing loaded from the internet.
 - The page **stops refreshing while the browser tab is in the background,** so a forgotten phone doesn't keep the SmartHub busy.
@@ -93,6 +102,7 @@ How the button works now:
 | Port closed and freed while hotspot is off | ❌ (always open) | ✅ |
 | Hotspot turns off by itself when nobody is connected | ❌ | ✅ |
 | Network reset: hold USER 15 s | ❌ | ✅ |
+| SSH blocked for hotspot devices, other websites blocked | ❌ | ✅ |
 | Open through an SSH tunnel while hotspot is off | ✅ | ❌ (port is closed) |
 
 ### Beta: still to confirm on real hardware
@@ -100,6 +110,7 @@ How the button works now:
 - **Port labels.** That "USB 3.0 port 1/2" and "hub port N" match the physical ports. Plug a device into each port, one at a time, to check.
 - **RTC battery voltage and HDMI monitor status.** These depend on Raspberry Pi OS reporting them. If it doesn't, the rows show *unknown*.
 - **Port open/close** when the hotspot turns on and off.
+- **Internet switch and SSH block.** That phones get no internet with the switch off, and that SSH from `192.168.4.x` is refused.
 - **Auto-off and the 15 s network reset.** Auto-off counts connected phones with `iw` (part of Raspberry Pi OS). If `iw` is missing, the hotspot never turns off by itself.
 
 Please report anything odd on [GitHub Issues](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/issues).
@@ -307,7 +318,9 @@ Live log: `sudo journalctl -u smarthub-ap -f`
 
 ```bash
 sudo systemctl disable --now smarthub-ap
-sudo rm -rf /opt/smarthub /etc/systemd/system/smarthub-ap.service
+sudo rm -rf /opt/smarthub /etc/systemd/system/smarthub-ap.service \
+  /etc/ssh/sshd_config.d/smarthub-ap.conf /etc/NetworkManager/dnsmasq-shared.d/smarthub-no-internet.conf
+sudo systemctl reload ssh
 ```
 
 ## License
