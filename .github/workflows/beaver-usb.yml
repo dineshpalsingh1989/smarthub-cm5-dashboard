@@ -19,11 +19,12 @@ jobs:
       - name: Pull the arm64 image (SmartHub CM5) and save it
         run: |
           docker pull --platform linux/arm64 "$IMAGE"
-          arch=$(docker image inspect -f '{{.Architecture}}' "$IMAGE")
+          arch=$(docker image inspect --platform linux/arm64 -f '{{.Architecture}}' "$IMAGE")  # runner may hold a multi-platform index
           [ "$arch" = arm64 ] || { echo "Got $arch, not arm64"; exit 1; }
-          docker save "$IMAGE" | gzip -6 > beaver-iot.tar.gz
+          docker save --platform linux/arm64 "$IMAGE" | gzip -6 > beaver-iot.tar.gz
           sha256sum beaver-iot.tar.gz > beaver-iot.tar.gz.sha256
           gzip -t beaver-iot.tar.gz
+          tar -tzf beaver-iot.tar.gz | grep -qx manifest.json  # classic docker-save layout: loads on any Docker version
           echo "DIGEST=$(docker image inspect -f '{{index .RepoDigests 0}}' "$IMAGE")" >> "$GITHUB_ENV"
           echo "SIZE=$(du -m beaver-iot.tar.gz | cut -f1)" >> "$GITHUB_ENV"
       - name: Upload to the beaver-iot-usb release
