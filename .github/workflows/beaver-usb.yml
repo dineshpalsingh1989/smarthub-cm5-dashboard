@@ -1,0 +1,49 @@
+name: beaver-iot-usb
+# Builds the offline Beaver IoT file for the dashboard's "Install from USB pendrive" button and puts it on the
+# GitHub release "beaver-iot-usb". Re-run (Actions tab or a push of this file) to pick up a newer Beaver IoT.
+on:
+  workflow_dispatch:
+  push:
+    branches: [beta]
+    paths: [.github/workflows/beaver-usb.yml]
+permissions:
+  contents: write
+jobs:
+  build:
+    if: github.repository == 'dineshpalsingh1989/smarthub-cm5-dashboard'  # not on private mirrors
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE: milesight/beaver-iot:latest
+    steps:
+      - name: Pull the arm64 image (SmartHub CM5) and save it
+        run: |
+          docker pull --platform linux/arm64 "$IMAGE"
+          arch=$(docker image inspect -f '{{.Architecture}}' "$IMAGE")
+          [ "$arch" = arm64 ] || { echo "Got $arch, not arm64"; exit 1; }
+          docker save "$IMAGE" | gzip -6 > beaver-iot.tar.gz
+          sha256sum beaver-iot.tar.gz > beaver-iot.tar.gz.sha256
+          gzip -t beaver-iot.tar.gz
+          echo "DIGEST=$(docker image inspect -f '{{index .RepoDigests 0}}' "$IMAGE")" >> "$GITHUB_ENV"
+          echo "SIZE=$(du -m beaver-iot.tar.gz | cut -f1)" >> "$GITHUB_ENV"
+      - name: Upload to the beaver-iot-usb release
+        run: |
+          cat > notes.md <<EOF
+          **Beaver IoT for the SmartHub CM5, for installing without internet.**
+
+          1. Download **beaver-iot.tar.gz** below (${SIZE} MB). Don't unzip it.
+          2. Copy it to the top folder of a USB pendrive (FAT32, exFAT or NTFS).
+          3. Plug the pendrive into any SmartHub USB port. In the dashboard, open **Devices → Beaver IoT → Install from USB pendrive**.
+
+          Image: \`${DIGEST}\` (linux/arm64), built $(date -u +%Y-%m-%d) by [this workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          Beaver IoT is made by Milesight and is MIT licensed: https://github.com/Milesight-IoT/beaver-iot. This file is the official \`milesight/beaver-iot\` Docker image, unchanged, saved with \`docker save\`.
+          EOF
+          R="--repo ${{ github.repository }}"
+          # shellcheck disable=SC2086
+          gh release view beaver-iot-usb $R >/dev/null 2>&1 \
+            || gh release create beaver-iot-usb $R --target "${{ github.sha }}" --latest=false --title "Beaver IoT offline file (USB pendrive)" --notes "building..."
+          # shellcheck disable=SC2086
+          gh release upload beaver-iot-usb beaver-iot.tar.gz beaver-iot.tar.gz.sha256 $R --clobber
+          # shellcheck disable=SC2086
+          gh release edit beaver-iot-usb $R --notes-file notes.md

@@ -109,12 +109,12 @@ How the button works now:
 
 - An **Internet** tile shows whether the SmartHub can reach the internet, and through which port (*yes · LAN port* when the Ethernet cable has internet). It really connects to Docker Hub, so *yes* means a download will work.
 - **Devices · Beaver IoT:** if Beaver IoT is not installed, the dashboard asks *"Download and install Beaver IoT now?"*, but only when there is internet.
-- **No internet? Use a USB pendrive.** On any PC with Docker and internet:
-  ```
-  docker pull --platform linux/arm64 milesight/beaver-iot
-  docker save milesight/beaver-iot -o beaver-iot.tar
-  ```
-  Copy `beaver-iot.tar` to the top folder of a pendrive (exFAT or NTFS: the file can be bigger than FAT32's 4 GB limit), plug it into any SmartHub USB port and press **Install from USB pendrive**. The pendrive is mounted read-only and unmounted afterwards.
+- **No internet? Use a USB pendrive.**
+  1. On any PC, download **[beaver-iot.tar.gz](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/download/beaver-iot-usb/beaver-iot.tar.gz)** (about 550 MB, from the [Beaver IoT offline file release](https://github.com/dineshpalsingh1989/smarthub-cm5-dashboard/releases/tag/beaver-iot-usb)). Don't unzip it.
+  2. Drag it to the top folder of a USB pendrive (FAT32, exFAT or NTFS).
+  3. Plug the pendrive into any SmartHub USB port, then press **Devices → Beaver IoT → Install from USB pendrive**. The pendrive is mounted read-only and unmounted afterwards.
+
+  The file is the official `milesight/beaver-iot` arm64 image, unchanged ([MIT licensed](https://github.com/Milesight-IoT/beaver-iot)), rebuilt by a GitHub Action. To make it yourself instead: `docker pull --platform linux/arm64 milesight/beaver-iot` then `docker save milesight/beaver-iot -o beaver-iot.tar`.
 - Beaver IoT runs with `--restart unless-stopped`, data in `/var/lib/beaver-iot`, MQTT on 1883. Its web page is on port **80**, or **9080** if this dashboard already uses port 80. Open it from your LAN at the SmartHub's Ethernet IP.
 
 ### See it

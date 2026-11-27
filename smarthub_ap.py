@@ -767,7 +767,7 @@ function bvr(){const b=S.beaver,x=$('#beaver');if(!b)return;
     const k=el('button','btn','Yes, download and install');k.onclick=()=>post('beaver',{source:'internet'});r.push(k)}
   else r.push(el('p','note',net===undefined?'Checking internet...':'No internet: plug a LAN cable with internet into the Ethernet port, or install from a USB pendrive.'));
   const u=el('button','btn ghost','Install from USB pendrive');u.onclick=()=>post('beaver',{source:'usb'});
-  r.push(u,el('p','note','USB pendrive: put the Beaver IoT image file (e.g. beaver-iot.tar) in its top folder and plug it into any USB port.'));
+  r.push(u,el('p','note','USB pendrive: download beaver-iot.tar.gz from the SmartHub dashboard GitHub page (Releases), copy it to the top folder of the pendrive and plug it into any USB port.'));
   x.replaceChildren(...r)}
 function crow(c){const r=el('div','ctr'),k=ccls(c),h=el('div');
   h.append(el('b',null,c.name),el('span','badge '+k,k=='r'?'error':c.state));r.append(h,el('div','s',c.status));
