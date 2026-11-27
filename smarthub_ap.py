@@ -12,7 +12,7 @@ The web server only exists while the AP is on: AP off = port closed, free for ot
 Install/update: see README.md (one-line install.sh).   Self-test:  python3 smarthub_ap.py test
 Needs Raspberry Pi OS Bookworm+ (NetworkManager/nmcli, gpiozero preinstalled).
 """
-import glob, ipaddress, json, os, pathlib, re, subprocess, sys, threading, time
+import glob, ipaddress, json, os, pathlib, re, socket, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 AP, WIFI, ETH = "smarthub-ap", "smarthub-wifi", "smarthub-eth"  # NetworkManager profile names
@@ -301,16 +301,16 @@ def wifi_list(rescan="no"):
 
 
 # ---------- Docker containers ----------
-def docker(*args):
-    r = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=90)
+def docker(*args, timeout=90):
+    r = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout)
     if r.returncode:
         raise RuntimeError(r.stderr.strip() or r.stdout.strip())
     return r.stdout
 
 
 def containers():
-    out = docker("ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}")
-    return [dict(zip(("name", "state", "status"), l.split("\t"))) for l in out.splitlines()]
+    out = docker("ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.Image}}")
+    return [dict(zip(("name", "state", "status", "image"), l.split("\t"))) for l in out.splitlines()]
 
 
 def set_docker(d):
@@ -336,7 +336,109 @@ def status():
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as e:  # e.g. docker daemon stopped
         ctrs, derr = [], "Docker error: " + str(e)
     return {"ap": ap_active(), "ap_ssid": ssid, "devices": devs, "containers": ctrs, "docker_error": derr,
-            "usb": usb_devices(), "options": settings}
+            "usb": usb_devices(), "options": settings,
+            "beaver": {"installed": beaver_installed(ctrs), "busy": beaver_lock.locked(), "msg": beaver_msg[0], "port": BEAVER_PORT}}
+
+
+def internet():  # -> interface the SmartHub reaches the internet (Docker Hub) through, e.g. "eth0"; None = no internet
+    try:
+        dev = re.search(r"\bdev (\S+)", subprocess.run(["ip", "route", "get", "1.1.1.1"],
+                                                       capture_output=True, text=True, timeout=5).stdout)
+        if dev:  # there is a default route: can we really reach Docker Hub (DNS + HTTPS port)?
+            socket.create_connection(("registry-1.docker.io", 443), timeout=4).close()
+            return dev.group(1)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+# ---------- Beaver IoT (Milesight) - install from internet or USB pendrive ----------
+BEAVER_IMAGE = "milesight/beaver-iot"
+BEAVER_PORT = 9080 if PORT == 80 else 80  # official web port is 80; it would clash with this dashboard on 80
+USB_MNT = "/run/smarthub-usb"
+beaver_lock = threading.Lock()  # held while an install runs
+beaver_msg = [""]               # progress, or why the last install failed
+
+
+def beaver_installed(ctrs):
+    return any(c["name"] == "beaver-iot" or c.get("image", "").startswith(BEAVER_IMAGE) for c in ctrs)
+
+
+def usb_partitions(tree):  # lsblk -J tree -> [(device, mountpoint or None)] for filesystems on USB drives
+    out = []
+
+    def walk(n, usb):
+        usb = usb or n.get("tran") == "usb"
+        for c in n.get("children") or []:
+            walk(c, usb)
+        if usb and n.get("fstype") and not n.get("children"):
+            out.append((n["name"], n.get("mountpoint")))
+    for n in tree.get("blockdevices", []):
+        walk(n, False)
+    return out
+
+
+def find_beaver_file(root):  # beaver*.tar or .tar.gz in the pendrive's top folder or one folder down
+    hits = [p for p in sorted(glob.glob(os.path.join(root, "*")) + glob.glob(os.path.join(root, "*", "*")))
+            if re.search(r"beaver.*\.tar(\.gz)?$", os.path.basename(p).lower()) and os.path.isfile(p)]
+    return hits[0] if hits else None
+
+
+def beaver_from_usb():  # docker load the image from a pendrive; -> image name to run
+    lsblk = subprocess.run(["lsblk", "-J", "-p", "-o", "NAME,TRAN,FSTYPE,MOUNTPOINT"], capture_output=True, text=True, timeout=10)
+    parts = usb_partitions(json.loads(lsblk.stdout or "{}"))
+    if not parts:
+        raise RuntimeError("No USB pendrive found - plug it into a USB port and try again")
+    for dev, mnt in parts:
+        mounted = not mnt
+        if mounted:  # headless OS does not auto-mount pendrives; read-only so we never change the user's files
+            os.makedirs(USB_MNT, exist_ok=True)
+            if subprocess.run(["mount", "-o", "ro,nosuid,nodev,noexec", dev, USB_MNT], capture_output=True, timeout=30).returncode:
+                continue
+            mnt = USB_MNT
+        try:
+            f = find_beaver_file(mnt)
+            if f:
+                beaver_msg[0] = "Loading %s from the USB pendrive (a few minutes)..." % os.path.basename(f)
+                out = docker("load", "-i", f, timeout=1800)
+                image = re.search(r"Loaded image: (\S+)", out)
+                if not image or not image.group(1).startswith(BEAVER_IMAGE):
+                    raise RuntimeError("%s is not the Beaver IoT image (%s)" % (os.path.basename(f), out.strip()[-80:]))
+                return image.group(1)
+        finally:
+            if mounted:
+                subprocess.run(["umount", USB_MNT], capture_output=True, timeout=30)
+    raise RuntimeError("No beaver-iot .tar file found on the USB pendrive")
+
+
+def beaver_install(source):  # background thread: download/load can take many minutes
+    try:
+        image = BEAVER_IMAGE
+        if source == "usb":
+            image = beaver_from_usb()
+        else:
+            beaver_msg[0] = "Downloading Beaver IoT from the internet (a few minutes)..."
+            docker("pull", BEAVER_IMAGE, timeout=1800)
+        beaver_msg[0] = "Starting Beaver IoT..."
+        docker("run", "-d", "--name", "beaver-iot", "--restart", "unless-stopped", "-v", "/var/lib/beaver-iot:/root",
+               "-p", "%d:80" % BEAVER_PORT, "-p", "1883:1883", image)  # 1883 = Beaver's built-in MQTT broker
+        beaver_msg[0] = ""
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
+        beaver_msg[0] = "Beaver IoT install failed: %s" % e
+        print(beaver_msg[0], flush=True)
+    finally:
+        beaver_lock.release()
+
+
+def set_beaver(d):
+    if d.get("source") not in ("internet", "usb"):
+        raise ValueError("Unknown source")
+    if beaver_installed(containers()):
+        raise ValueError("Beaver IoT is already installed")
+    if not beaver_lock.acquire(blocking=False):
+        raise ValueError("Beaver IoT install is already running")
+    beaver_msg[0] = "Starting install..."
+    threading.Thread(target=beaver_install, args=(d["source"],), daemon=True).start()
 
 
 # ---------- USB ports ----------
@@ -440,6 +542,7 @@ def system():
 
 # ---------- Web server ----------
 ROUTES = {"/api/eth": set_eth, "/api/wifi": set_wifi, "/api/ap": set_ap, "/api/docker": set_docker, "/api/options": set_options,
+          "/api/beaver": set_beaver,
           "/api/ap/off": lambda d: threading.Timer(1, ap_off).start()}
 
 
@@ -496,6 +599,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, wifi_list() or scan_cache)
         elif self.path == "/api/system":
             self.send(200, system())
+        elif self.path == "/api/internet":
+            self.send(200, {"via": internet()})
         else:
             self.send(404, {"error": "not found"})
 
@@ -589,6 +694,7 @@ footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
 <div data-tab="dev" hidden>
 <section class="card"><h2>USB ports</h2><div id="usb">Loading...</div></section>
 <section class="card"><h2>Docker</h2><div id="docker">Loading...</div></section>
+<section class="card"><h2>Beaver IoT</h2><div id="beaver">Loading...</div></section>
 </div>
 
 <div data-tab="sys" hidden>
@@ -602,7 +708,7 @@ footer{text-align:center;font-size:12px;color:var(--mute);padding:4px 16px 20px}
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
-let S={},Y=null,tt,optset=0;
+let S={},Y=null,tt,optset=0,net,netbusy=0;  // net: undefined = checking, null = no internet, else interface
 $$('nav button').forEach(b=>b.onclick=()=>{$$('nav button').forEach(x=>x.classList.toggle('on',x==b));
   $$('[data-tab]').forEach(t=>t.hidden=t.dataset.tab!=b.dataset.go);history.replaceState(null,'','#'+b.dataset.go)});
 ($$('nav button').find(b=>'#'+b.dataset.go==location.hash)||{click(){}}).click();  // keep tab on refresh
@@ -632,6 +738,7 @@ function tiles(){const dv=n=>(S.devices||[]).find(x=>x.device==n)||{},e=dv('eth0
   const t=Y&&Y.hardware.find(h=>h.name=='CPU temperature'),iss=Y&&Y.hardware.filter(h=>h.ok===false).length;
   $('#tiles').replaceChildren(
     tile('Ethernet',ip(e)||(e.state?'no cable':'not found'),ip(e)?'g':'r'),
+    tile('Internet',net===undefined?'checking...':net?'yes · '+(net=='eth0'?'LAN port':net):'none',net?'g':net===null?'r':''),
     tile('WiFi',hot?'Hotspot':ip(w)||w.state||'off',hot?'a':ip(w)?'g':''),
     tile('USB devices',String((S.usb||[]).length),(S.usb||[]).length?'g':''),
     tile('Docker',S.docker_error?'not available':run+' of '+cs.length+' running',S.docker_error?'':bad?'r':'g'),
@@ -647,7 +754,21 @@ async function load(){try{S=await (await fetch('/api/status')).json()}catch(e){r
   const p3=['USB 3.0 port 1','USB 3.0 port 2'],u=S.usb,us=d=>d.name+(d.maker?' ('+d.maker+')':'')+' · '+d.speed;
   const rows=[];for(const p of p3){const ds=u.filter(d=>d.port==p);rows.push(...(ds.length?ds.map(d=>kv(p,us(d),'g')):[kv(p,'empty','',1)]))}
   const u2=u.filter(d=>!p3.includes(d.port));rows.push(...(u2.length?u2.map(d=>kv(d.port,us(d),'g')):[kv('USB 2.0 ports','empty','',1)]));
-  $('#usb').replaceChildren(...rows);tiles()}
+  $('#usb').replaceChildren(...rows);tiles();bvr();netload()}
+async function netload(){if(netbusy)return;netbusy=1;  // the check can take seconds when there is no internet
+  try{net=(await (await fetch('/api/internet')).json()).via}catch(e){}netbusy=0;tiles();bvr()}
+function bvr(){const b=S.beaver,x=$('#beaver');if(!b)return;
+  if(S.docker_error)return x.replaceChildren(el('p','note','Beaver IoT runs in Docker. '+S.docker_error));
+  if(b.installed){const a=ip((S.devices||[]).find(d=>d.device=='eth0'));
+    return x.replaceChildren(kv('Installed','open http://'+(a||'<SmartHub LAN IP>')+(b.port==80?'':':'+b.port)+' from your LAN','g'))}
+  if(b.busy)return x.replaceChildren(el('p',null,b.msg+' Keep the SmartHub powered on.'));
+  const r=[];if(b.msg)r.push(kv('Last try',b.msg,'r'));r.push(el('p',null,'Beaver IoT is not installed.'));
+  if(net){r.push(el('p',null,'The SmartHub has internet. Download and install Beaver IoT now?'));
+    const k=el('button','btn','Yes, download and install');k.onclick=()=>post('beaver',{source:'internet'});r.push(k)}
+  else r.push(el('p','note',net===undefined?'Checking internet...':'No internet: plug a LAN cable with internet into the Ethernet port, or install from a USB pendrive.'));
+  const u=el('button','btn ghost','Install from USB pendrive');u.onclick=()=>post('beaver',{source:'usb'});
+  r.push(u,el('p','note','USB pendrive: put the Beaver IoT image file (e.g. beaver-iot.tar) in its top folder and plug it into any USB port.'));
+  x.replaceChildren(...r)}
 function crow(c){const r=el('div','ctr'),k=ccls(c),h=el('div');
   h.append(el('b',null,c.name),el('span','badge '+k,k=='r'?'error':c.state));r.append(h,el('div','s',c.status));
   for(const a of c.state=='running'?['restart','stop']:['start','restart']){
@@ -749,6 +870,24 @@ def selftest():
     for bad in ({"action": "rm", "name": "x"}, {"action": "exec"}):  # only start/stop/restart reach docker
         try:
             set_docker(bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    tree = {"blockdevices": [{"name": "/dev/mmcblk0", "tran": None, "children": [{"name": "/dev/mmcblk0p2", "fstype": "ext4", "mountpoint": "/"}]},
+                             {"name": "/dev/sda", "tran": "usb", "children": [{"name": "/dev/sda1", "fstype": "vfat", "mountpoint": None}]},
+                             {"name": "/dev/sdb", "tran": "usb", "fstype": "exfat", "mountpoint": "/media/x"}]}  # no partition table
+    assert usb_partitions(tree) == [("/dev/sda1", None), ("/dev/sdb", "/media/x")], usb_partitions(tree)
+    with tempfile.TemporaryDirectory() as root:
+        assert find_beaver_file(root) is None
+        os.mkdir(os.path.join(root, "images"))
+        for f in ("notes.txt", "Beaver-IoT.tar.txt", os.path.join("images", "beaver-iot-arm64.TAR.GZ")):
+            open(os.path.join(root, f), "w").close()
+        assert find_beaver_file(root) == os.path.join(root, "images", "beaver-iot-arm64.TAR.GZ")
+    assert beaver_installed([{"name": "my-beaver", "image": "milesight/beaver-iot:latest"}]) and \
+        beaver_installed([{"name": "beaver-iot"}]) and not beaver_installed([{"name": "nginx", "image": "nginx"}])
+    for bad in ({"source": "ftp"}, {}):
+        try:
+            set_beaver(bad)
             raise AssertionError(bad)
         except ValueError:
             pass

@@ -96,7 +96,7 @@ How the button works now:
 - **Other websites can't use the dashboard.** A web page open on the phone, even one loaded over mobile data, can't send settings to the SmartHub. The dashboard only accepts its own page (checks the address, `Origin` and JSON-only requests).
 - **No stuck connections.** Requests are limited to 4 KB, and a device that goes silent for 10 seconds is disconnected.
 - **Safer network changes.** A new Ethernet/WiFi profile is saved before the old one is removed, so if NetworkManager rejects it, your old settings stay.
-- The dashboard has no terminal or command box. Docker buttons only start, stop or restart existing containers.
+- The dashboard has no terminal or command box. Docker buttons only start, stop or restart existing containers. The only thing it can install is Beaver IoT (the official `milesight/beaver-iot` image).
 
 ### 6 · Still very light
 
@@ -104,6 +104,18 @@ How the button works now:
 - The page **stops refreshing while the browser tab is in the background,** so a forgotten phone doesn't keep the SmartHub busy.
 - With the hotspot off, only the same tiny button watcher runs as in V1.2+ (measured at about 0.03% of one core).
 - The new safety features add almost nothing: the "is anyone connected?" check runs every 30 s, and only while the hotspot is on.
+
+### 7 · Internet check and Beaver IoT install
+
+- An **Internet** tile shows whether the SmartHub can reach the internet, and through which port (*yes · LAN port* when the Ethernet cable has internet). It really connects to Docker Hub, so *yes* means a download will work.
+- **Devices · Beaver IoT:** if Beaver IoT is not installed, the dashboard asks *"Download and install Beaver IoT now?"*, but only when there is internet.
+- **No internet? Use a USB pendrive.** On any PC with Docker and internet:
+  ```
+  docker pull --platform linux/arm64 milesight/beaver-iot
+  docker save milesight/beaver-iot -o beaver-iot.tar
+  ```
+  Copy `beaver-iot.tar` to the top folder of a pendrive (exFAT or NTFS: the file can be bigger than FAT32's 4 GB limit), plug it into any SmartHub USB port and press **Install from USB pendrive**. The pendrive is mounted read-only and unmounted afterwards.
+- Beaver IoT runs with `--restart unless-stopped`, data in `/var/lib/beaver-iot`, MQTT on 1883. Its web page is on port **80**, or **9080** if this dashboard already uses port 80. Open it from your LAN at the SmartHub's Ethernet IP.
 
 ### See it
 
@@ -129,6 +141,7 @@ How the button works now:
 | Network reset: hold USER 15 s | ❌ | ✅ |
 | SSH blocked for hotspot devices, other websites blocked | ❌ | ✅ |
 | Internet sharing for hotspot devices | Always on | Switch, off by default |
+| Internet check + Beaver IoT install (internet or USB pendrive) | ❌ | ✅ |
 | Open through an SSH tunnel while hotspot is off | ✅ | ❌ (port is closed) |
 
 ### Beta: still to confirm on real hardware
@@ -287,13 +300,13 @@ The dashboard is mainly for **seeing and setting up the SmartHub's network** wit
 
 | Section | What you can do |
 |---|---|
-| **Tiles** (top) | Ethernet IP, WiFi, USB devices, Docker, CPU temperature, hardware issues |
+| **Tiles** (top) | Ethernet IP, Internet, WiFi, USB devices, Docker, CPU temperature, hardware issues |
 | **Network · Connections** | eth0 / wlan0 state and IP address |
 | **Network · Ethernet** | Choose **Dynamic (DHCP)** or **Static** (IP / prefix, gateway, DNS), then **Apply** |
 | **Network · Connect to WiFi** | **Search WiFi**, pick a network, enter its password, choose DHCP or Static, then **Connect** |
 | **Network · Hotspot** | Change the hotspot name and password, or **Turn off hotspot** |
 | **Network · Safety options** | Auto-off time, network reset button, internet sharing |
-| **Devices** | USB ports, and Docker containers: 🟢 running, ⚪ stopped, 🔴 error. **Start**, **Stop** or **Restart** them |
+| **Devices** | USB ports, and Docker containers: 🟢 running, ⚪ stopped, 🔴 error. **Start**, **Stop** or **Restart** them. **Beaver IoT:** install from the internet or a USB pendrive |
 | **System** | Hardware check, OS and software versions |
 
 **Good to know**
